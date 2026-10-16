@@ -1,0 +1,6 @@
+{
+  "name": "FocusZone Study Library",
+  "description": "Premium physical study library and silent reading space for students with individual air-conditioned cabins, high-speed Wi-Fi, and live seat reservation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
