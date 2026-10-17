@@ -118,7 +118,42 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [selectedSeatForBooking, setSelectedSeatForBooking] = useState<Seat | null>(null);
 
-  // Sync to local storage
+  // Fetch from MySQL Backend on mount
+  useEffect(() => {
+    const fetchBackendData = async () => {
+      try {
+        const [seatsRes, usersRes, plansRes, actRes] = await Promise.all([
+          fetch('/api/seats'),
+          fetch('/api/users'),
+          fetch('/api/plans'),
+          fetch('/api/activities'),
+        ]);
+
+        if (seatsRes.ok) {
+          const seatsData = await seatsRes.json();
+          if (Array.isArray(seatsData) && seatsData.length > 0) setSeats(seatsData);
+        }
+        if (usersRes.ok) {
+          const usersData = await usersRes.json();
+          if (Array.isArray(usersData) && usersData.length > 0) setUsers(usersData);
+        }
+        if (plansRes.ok) {
+          const plansData = await plansRes.json();
+          if (Array.isArray(plansData) && plansData.length > 0) setPlans(plansData);
+        }
+        if (actRes.ok) {
+          const actData = await actRes.json();
+          if (Array.isArray(actData) && actData.length > 0) setActivities(actData);
+        }
+      } catch (err) {
+        console.info('Backend API running in local fallback mode.');
+      }
+    };
+
+    fetchBackendData();
+  }, []);
+
+  // Sync to local storage for offline / quick reload resilience
   useEffect(() => {
     localStorage.setItem('fz_library_seats', JSON.stringify(seats));
   }, [seats]);
