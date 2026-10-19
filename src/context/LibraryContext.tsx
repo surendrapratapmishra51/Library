@@ -15,7 +15,7 @@ interface LibraryContextType {
   userRole: 'student' | 'admin' | 'guest';
   selectedSeatForBooking: Seat | null;
   setSelectedSeatForBooking: (seat: Seat | null) => void;
-  login: (role: 'student' | 'admin') => void;
+  login: (role: 'student' | 'admin', profileData?: any, token?: string) => void;
   logout: () => void;
   registerApplication: (formData: RegistrationFormData) => Promise<{ success: boolean; message: string }>;
   updateSeatStatus: (seatId: string, status: 'available' | 'occupied' | 'maintenance', occupant?: string) => void;
@@ -43,40 +43,7 @@ interface LibraryContextType {
   };
 }
 
-const initialActivities: ActivityItem[] = [
-  {
-    id: 'act-1',
-    type: 'member_added',
-    title: 'New Member Registered',
-    timestamp: 'Today, 10:30 AM',
-    details: 'Vikramaditya Sharma enrolled for Quarterly Plan',
-    meta: { userName: 'Vikramaditya Sharma', seatNumber: 'A04' }
-  },
-  {
-    id: 'act-2',
-    type: 'seat_changed',
-    title: 'Seat Allocation Updated',
-    timestamp: 'Yesterday, 04:15 PM',
-    details: 'Aakriti Sen moved from Seat B01 to Seat B04 (Prime Window)',
-    meta: { userName: 'Aakriti Sen', oldSeat: 'B01', newSeat: 'B04' }
-  },
-  {
-    id: 'act-3',
-    type: 'member_discontinued',
-    title: 'Membership Discontinued',
-    timestamp: '28 Sep 2026',
-    details: 'Rahul Verma membership completed. Seat B02 released to Available.',
-    meta: { userName: 'Rahul Verma', seatNumber: 'B02' }
-  },
-  {
-    id: 'act-4',
-    type: 'member_added',
-    title: 'New Member Registered',
-    timestamp: '24 Sep 2026',
-    details: 'Pooja Sharma enrolled for Monthly Plan',
-    meta: { userName: 'Pooja Sharma', seatNumber: 'A01' }
-  }
-];
+const initialActivities: ActivityItem[] = [];
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
@@ -84,12 +51,38 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Sync seats with active users on initial load
   const [seats, setSeats] = useState<Seat[]>(() => {
     const saved = localStorage.getItem('fz_library_seats');
-    return saved ? JSON.parse(saved) : mockSeats;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // If saved seats contain mock occupant names, purge old cache
+        if (Array.isArray(parsed) && parsed.some((s: any) => s.occupiedBy === 'Aman Verma' || s.occupiedBy === 'Vikramaditya Sharma')) {
+          localStorage.removeItem('fz_library_seats');
+          return mockSeats;
+        }
+        return parsed;
+      } catch (e) {
+        return mockSeats;
+      }
+    }
+    return mockSeats;
   });
 
   const [users, setUsers] = useState<AdminUser[]>(() => {
     const saved = localStorage.getItem('fz_library_users');
-    return saved ? JSON.parse(saved) : mockInitialUsers;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // If saved users contain old mock student "usr-101", purge old cache
+        if (Array.isArray(parsed) && parsed.some((u: any) => u.id === 'usr-101' || u.name === 'Vikramaditya Sharma')) {
+          localStorage.removeItem('fz_library_users');
+          return [];
+        }
+        return parsed;
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
   });
 
   const [plans, setPlans] = useState<MembershipPlan[]>(() => {
@@ -99,12 +92,36 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [activities, setActivities] = useState<ActivityItem[]>(() => {
     const saved = localStorage.getItem('fz_library_activities');
-    return saved ? JSON.parse(saved) : initialActivities;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((a: any) => a.id === 'act-1' || a.meta?.userName === 'Vikramaditya Sharma')) {
+          localStorage.removeItem('fz_library_activities');
+          return [];
+        }
+        return parsed;
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
   });
 
   const [student, setStudent] = useState<StudentProfile>(() => {
     const saved = localStorage.getItem('fz_library_student');
-    return saved ? JSON.parse(saved) : mockDefaultStudent;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.id === 'std-1042' || parsed.id === 'usr-101' || parsed.name === 'Vikramaditya Sharma') {
+          localStorage.removeItem('fz_library_student');
+          return mockDefaultStudent;
+        }
+        return parsed;
+      } catch (e) {
+        return mockDefaultStudent;
+      }
+    }
+    return mockDefaultStudent;
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -131,11 +148,11 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         if (seatsRes.ok) {
           const seatsData = await seatsRes.json();
-          if (Array.isArray(seatsData) && seatsData.length > 0) setSeats(seatsData);
+          if (Array.isArray(seatsData)) setSeats(seatsData);
         }
         if (usersRes.ok) {
           const usersData = await usersRes.json();
-          if (Array.isArray(usersData) && usersData.length > 0) setUsers(usersData);
+          if (Array.isArray(usersData)) setUsers(usersData);
         }
         if (plansRes.ok) {
           const plansData = await plansRes.json();
@@ -143,7 +160,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         if (actRes.ok) {
           const actData = await actRes.json();
-          if (Array.isArray(actData) && actData.length > 0) setActivities(actData);
+          if (Array.isArray(actData)) setActivities(actData);
         }
       } catch (err) {
         console.info('Backend API running in local fallback mode.');
@@ -174,11 +191,29 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('fz_library_student', JSON.stringify(student));
   }, [student]);
 
-  const login = (role: 'student' | 'admin') => {
+  const login = (role: 'student' | 'admin', profileData?: any, token?: string) => {
     setIsAuthenticated(true);
     setUserRole(role);
     localStorage.setItem('fz_library_auth', 'true');
     localStorage.setItem('fz_library_role', role);
+    if (token) {
+      localStorage.setItem('fz_library_token', token);
+    }
+    if (profileData && role === 'student') {
+      setStudent((prev) => ({
+        ...prev,
+        id: profileData.id || prev.id,
+        name: profileData.name || prev.name,
+        email: profileData.email || prev.email,
+        mobile: profileData.mobile || prev.mobile,
+        assignedSeat: profileData.seat || prev.assignedSeat,
+        planName: profileData.plan || prev.planName,
+        planId: profileData.planId || prev.planId,
+        startDate: profileData.joiningDate || prev.startDate,
+        expiryDate: profileData.expiryDate || prev.expiryDate,
+        membershipStatus: profileData.status === 'Active' ? 'Active' : 'Expired',
+      }));
+    }
   };
 
   const logout = () => {
@@ -186,6 +221,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setUserRole('guest');
     localStorage.removeItem('fz_library_auth');
     localStorage.removeItem('fz_library_role');
+    localStorage.removeItem('fz_library_token');
   };
 
   const registerApplication = async (formData: RegistrationFormData): Promise<{ success: boolean; message: string }> => {

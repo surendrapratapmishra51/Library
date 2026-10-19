@@ -1,22 +1,20 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useLibrary } from '../../context/LibraryContext';
 import { Button } from '../common/Button';
-import { LogIn, Key, Mail, ShieldAlert, Sparkles, UserCheck } from 'lucide-react';
+import { LogIn, Key, Mail, ShieldAlert } from 'lucide-react';
 
 interface LoginFormProps {
   defaultRole?: 'student' | 'admin';
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'admin' }) => {
   const navigate = useNavigate();
   const { login } = useLibrary();
 
   const [role, setRole] = useState<'student' | 'admin'>(defaultRole);
-  const [identifier, setIdentifier] = useState(
-    defaultRole === 'student' ? 'vikram.sharma@example.com' : 'admin@focuszonelibrary.com'
-  );
-  const [password, setPassword] = useState('password123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -34,29 +32,34 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
     }
 
     setIsLoading(true);
-    // Simulate auth latency
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    login(role);
-    setIsLoading(false);
 
-    if (role === 'admin') {
-      navigate('/admin');
-    } else {
-      navigate('/dashboard');
-    }
-  };
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: identifier.trim(), password: password.trim() })
+      });
 
-  const handleQuickDemo = (selectedRole: 'student' | 'admin') => {
-    setRole(selectedRole);
-    if (selectedRole === 'student') {
-      setIdentifier('vikram.sharma@example.com');
-      setPassword('studentPass2026');
-    } else {
-      setIdentifier('admin@focuszonelibrary.com');
-      setPassword('adminPass2026');
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Authentication failed. Please check credentials.');
+      }
+
+      // Check role match
+      const userRole = data.user.role || 'student';
+      login(userRole, data.user, data.token);
+
+      if (userRole === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Incorrect credentials. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
-    login(selectedRole);
-    navigate(selectedRole === 'admin' ? '/admin' : '/dashboard');
   };
 
   return (
@@ -67,22 +70,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
         <button
           type="button"
           onClick={() => {
-            setRole('student');
-            setIdentifier('vikram.sharma@example.com');
-          }}
-          className={`flex-1 py-2 text-center rounded-md transition-colors cursor-pointer ${
-            role === 'student'
-              ? 'bg-white text-emerald-900 shadow-xs'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          Student Portal
-        </button>
-        <button
-          type="button"
-          onClick={() => {
             setRole('admin');
-            setIdentifier('admin@focuszonelibrary.com');
+            setIdentifier('');
+            setPassword('');
+            setErrorMsg(null);
           }}
           className={`flex-1 py-2 text-center rounded-md transition-colors cursor-pointer ${
             role === 'admin'
@@ -92,16 +83,32 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
         >
           Staff & Admin
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRole('student');
+            setIdentifier('');
+            setPassword('');
+            setErrorMsg(null);
+          }}
+          className={`flex-1 py-2 text-center rounded-md transition-colors cursor-pointer ${
+            role === 'student'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Student Portal
+        </button>
       </div>
 
       <div>
         <h3 className="text-xl font-bold text-slate-900 font-display">
-          {role === 'student' ? 'Student Member Sign In' : 'Admin & Staff Portal'}
+          {role === 'admin' ? 'Admin & Staff Portal' : 'Student Member Sign In'}
         </h3>
         <p className="text-xs text-slate-500 mt-1">
-          {role === 'student'
-            ? 'Access your desk details, live RFID attendance, and renewal status'
-            : 'Access seat matrix, live student entry logs, and fee ledger'}
+          {role === 'admin'
+            ? 'Access seat matrix, live student enrollments, and fee ledger'
+            : 'Access your desk details, live attendance, and subscription status'}
         </p>
       </div>
 
@@ -111,30 +118,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
           <span>{errorMsg}</span>
         </div>
       )}
-
-      {/* Quick Demo Access Bar */}
-      <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 font-medium">
-          <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-          Quick Preview Mode:
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleQuickDemo('student')}
-            className="px-2.5 py-1 rounded bg-white hover:bg-emerald-100 text-emerald-800 font-semibold border border-emerald-300 text-[11px] transition-colors cursor-pointer"
-          >
-            Demo Student
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickDemo('admin')}
-            className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] transition-colors cursor-pointer"
-          >
-            Demo Admin
-          </button>
-        </div>
-      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -194,12 +177,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
         </div>
       </form>
 
-      {/* Footer link to Register */}
-      <div className="pt-4 border-t border-slate-100 text-center text-xs text-slate-600">
-        <span>Not registered with FocusZone yet? </span>
-        <Link to="/join" className="text-emerald-700 font-semibold hover:underline">
-          Create Account / Apply for Desk
-        </Link>
+      {/* Notice that account registration is admin-managed */}
+      <div className="pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
+        <span className="font-medium text-slate-700">Account Access Notice: </span>
+        <span>Student accounts are created & provisioned by Library Administration upon desk allocation.</span>
       </div>
     </div>
   );

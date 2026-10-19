@@ -24,19 +24,19 @@ export const StudentDashboardPage: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-2xl font-display shadow-sm">
-            {student.name.charAt(0)}
+            {(student?.name || 'S').charAt(0).toUpperCase()}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900 font-display">
-                {student.name}
+                {student?.name || 'Student Member'}
               </h1>
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
-                {student.membershipStatus}
+                {student?.membershipStatus || 'Active'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Member ID: <span className="font-mono text-slate-700">{student.id}</span> · Enrolled since {student.startDate}
+              Member ID: <span className="font-mono text-slate-700">{student?.id || 'Pending'}</span> · Enrolled: {student?.startDate || 'Recent'}
             </p>
           </div>
         </div>
@@ -135,10 +135,10 @@ export const StudentDashboardPage: React.FC = () => {
           </div>
           <div>
             <div className="text-2xl font-bold text-slate-900 font-mono">
-              {student.nextRenewalDate}
+              {student.nextRenewalDate || student.expiryDate || 'N/A'}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Last paid: ₹{student.lastPayment.amount} ({student.lastPayment.date})
+              Last paid: {student.lastPayment ? `₹${student.lastPayment.amount} (${student.lastPayment.date})` : 'No receipts yet'}
             </p>
           </div>
         </div>
@@ -153,19 +153,19 @@ export const StudentDashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
           <div>
             <span className="text-slate-400 block mb-1">Mobile Phone:</span>
-            <span className="font-semibold text-slate-800 font-mono text-sm">{student.mobile}</span>
+            <span className="font-semibold text-slate-800 font-mono text-sm">{student.mobile || 'Not provided'}</span>
           </div>
           <div>
             <span className="text-slate-400 block mb-1">Registered Email:</span>
-            <span className="font-semibold text-slate-800 text-sm">{student.email}</span>
+            <span className="font-semibold text-slate-800 text-sm">{student.email || 'Not provided'}</span>
           </div>
           <div>
             <span className="text-slate-400 block mb-1">Date of Birth:</span>
-            <span className="font-semibold text-slate-800 text-sm">{student.dob}</span>
+            <span className="font-semibold text-slate-800 text-sm">{student.dob || 'Not provided'}</span>
           </div>
           <div>
             <span className="text-slate-400 block mb-1">Residential Address:</span>
-            <span className="font-semibold text-slate-800 text-sm">{student.address}</span>
+            <span className="font-semibold text-slate-800 text-sm">{student.address || 'Not provided'}</span>
           </div>
         </div>
       </div>
@@ -180,7 +180,7 @@ export const StudentDashboardPage: React.FC = () => {
             <p className="text-xs text-slate-500 mt-0.5">Automated timestamp records from entrance turnstile</p>
           </div>
           <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded">
-            98.5% Consistency This Month
+            Biometric Sync Active
           </span>
         </div>
 
@@ -196,25 +196,33 @@ export const StudentDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {mockStudentAttendance.map((rec) => (
-                <tr key={rec.id} className="hover:bg-slate-50/50">
-                  <td className="p-4 font-medium text-slate-900 font-mono">{rec.date}</td>
-                  <td className="p-4 font-mono">{rec.entryTime}</td>
-                  <td className="p-4 font-mono">{rec.exitTime}</td>
-                  <td className="p-4 font-semibold text-slate-900">{rec.durationHours}</td>
-                  <td className="p-4 text-right">
-                    <span
-                      className={`px-2 py-0.5 rounded-full font-medium ${
-                        rec.status === 'In Progress'
-                          ? 'bg-emerald-100 text-emerald-800 font-semibold'
-                          : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      {rec.status}
-                    </span>
+              {mockStudentAttendance.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-400">
+                    No attendance punches recorded yet. RFID turnstile records appear here automatically.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                mockStudentAttendance.map((rec) => (
+                  <tr key={rec.id} className="hover:bg-slate-50/50">
+                    <td className="p-4 font-medium text-slate-900 font-mono">{rec.date}</td>
+                    <td className="p-4 font-mono">{rec.entryTime}</td>
+                    <td className="p-4 font-mono">{rec.exitTime}</td>
+                    <td className="p-4 font-semibold text-slate-900">{rec.durationHours}</td>
+                    <td className="p-4 text-right">
+                      <span
+                        className={`px-2 py-0.5 rounded-full font-medium ${
+                          rec.status === 'In Progress'
+                            ? 'bg-emerald-100 text-emerald-800 font-semibold'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {rec.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -230,7 +238,7 @@ export const StudentDashboardPage: React.FC = () => {
             <p className="text-xs text-slate-500 mt-0.5">Official invoices for fee submissions and renewals</p>
           </div>
           <button
-            onClick={() => alert('All tax receipts downloaded as consolidated PDF in demo mode.')}
+            onClick={() => alert('Official receipts generated by administrator upon fee payment.')}
             className="text-xs font-semibold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
           >
             <FileText className="w-3.5 h-3.5" />
@@ -250,19 +258,27 @@ export const StudentDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {mockStudentPayments.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50/50">
-                  <td className="p-4 font-mono font-medium text-slate-900">{p.transactionId}</td>
-                  <td className="p-4 text-slate-800">{p.planName}</td>
-                  <td className="p-4 font-bold font-mono text-slate-900">₹{p.amount.toLocaleString()}</td>
-                  <td className="p-4 font-mono">{p.paymentDate}</td>
-                  <td className="p-4 text-right">
-                    <span className="px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-800 font-semibold">
-                      {p.status}
-                    </span>
+              {mockStudentPayments.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-400">
+                    No payment receipts issued yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                mockStudentPayments.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50/50">
+                    <td className="p-4 font-mono font-medium text-slate-900">{p.transactionId}</td>
+                    <td className="p-4 text-slate-800">{p.planName}</td>
+                    <td className="p-4 font-bold font-mono text-slate-900">₹{p.amount.toLocaleString()}</td>
+                    <td className="p-4 font-mono">{p.paymentDate}</td>
+                    <td className="p-4 text-right">
+                      <span className="px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-800 font-semibold">
+                        {p.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

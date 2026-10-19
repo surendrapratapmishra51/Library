@@ -1,13 +1,13 @@
-import { initDatabase } from '../config/db.js';
+import { syncDatabase } from '../models/index.js';
 
 async function runMigration() {
-  console.log('🔄 [Migration] Starting database migration...');
+  console.log('🔄 [Sequelize Migration] Starting database schema synchronization...');
   try {
-    await initDatabase();
-    console.log('✅ [Migration] All tables migrated and seeded successfully!');
+    await syncDatabase();
+    console.log('✅ [Sequelize Migration] All models and tables synchronized and seeded successfully!');
     process.exit(0);
   } catch (error: any) {
-    console.error('❌ [Migration Failed]:', error.message);
+    console.error('❌ [Sequelize Migration Failed]:', error.message);
     process.exit(1);
   }
 }

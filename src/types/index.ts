@@ -50,6 +50,8 @@ export interface AdminUser {
   joiningDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
   status: 'Active' | 'Discontinued';
+  role?: 'admin' | 'student';
+  password?: string;
   previousSeat?: string;
   discontinuedDate?: string;
   history?: string[];

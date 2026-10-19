@@ -17,6 +17,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
     name: '',
     mobile: '',
     email: '',
+    password: 'student123',
     address: '',
     planId: 'quarterly',
     plan: 'Quarterly Plan',
@@ -43,6 +44,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
         name: userToEdit.name,
         mobile: userToEdit.mobile,
         email: userToEdit.email,
+        password: '',
         address: userToEdit.address,
         planId: userToEdit.planId,
         plan: userToEdit.plan,
@@ -56,6 +58,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
         name: '',
         mobile: '',
         email: '',
+        password: 'student123',
         address: '',
         planId: activePlans[0]?.id || 'quarterly',
         plan: activePlans[0]?.name || 'Quarterly Plan',
@@ -215,6 +218,25 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
               />
             </div>
+          </div>
+
+          {/* Account Login Password */}
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+              <span>Account Login Password {userToEdit ? '(Leave blank to keep unchanged)' : '*'}</span>
+              {!userToEdit && <span className="text-[10px] text-slate-400 font-normal">Default: student123</span>}
+            </label>
+            <input
+              type="text"
+              name="password"
+              placeholder={userToEdit ? 'Enter new password if updating' : 'e.g. student123'}
+              value={formData.password}
+              onChange={handleChange}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-mono"
+            />
+            <p className="text-[10px] text-slate-500 mt-1">
+              Student will use their Mobile / Email with this password to access the Student Portal.
+            </p>
           </div>
 
           {/* Membership Plan & Assigned Seat */}

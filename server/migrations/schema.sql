@@ -41,8 +41,10 @@ CREATE TABLE IF NOT EXISTS `seats` (
 CREATE TABLE IF NOT EXISTS `users` (
   `id` VARCHAR(50) PRIMARY KEY,
   `name` VARCHAR(100) NOT NULL,
-  `mobile` VARCHAR(30),
-  `email` VARCHAR(100),
+  `mobile` VARCHAR(30) UNIQUE,
+  `email` VARCHAR(100) UNIQUE,
+  `password` VARCHAR(255) NOT NULL,
+  `role` ENUM('admin', 'student') DEFAULT 'student',
   `address` TEXT,
   `plan` VARCHAR(100),
   `planId` VARCHAR(50),

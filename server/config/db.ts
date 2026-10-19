@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -94,8 +95,10 @@ export async function initDatabase() {
       CREATE TABLE IF NOT EXISTS users (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
-        mobile VARCHAR(30),
-        email VARCHAR(100),
+        mobile VARCHAR(30) UNIQUE,
+        email VARCHAR(100) UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'student') DEFAULT 'student',
         address TEXT,
         plan VARCHAR(100),
         planId VARCHAR(50),
@@ -110,6 +113,20 @@ export async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB;
     `);
+
+    // Safe column migrations for users table if it existed prior to auth
+    try {
+      const [cols]: any = await db.query('SHOW COLUMNS FROM users');
+      const colNames = cols.map((c: any) => c.Field);
+      if (!colNames.includes('password')) {
+        await db.query("ALTER TABLE users ADD COLUMN password VARCHAR(255) NOT NULL DEFAULT ''");
+      }
+      if (!colNames.includes('role')) {
+        await db.query("ALTER TABLE users ADD COLUMN role ENUM('admin', 'student') DEFAULT 'student'");
+      }
+    } catch (e: any) {
+      console.warn('[DB Migration Warning] Column verification skipped:', e.message);
+    }
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS activities (
@@ -328,14 +345,35 @@ async function seedDataIfEmpty() {
 
   // Check users
   const [users]: any = await db.query('SELECT COUNT(*) as count FROM users');
+  const hashedAdminPass = await bcrypt.hash('admin123', 10);
+  const hashedStudentPass = await bcrypt.hash('student123', 10);
+
   if (users[0].count === 0) {
-    console.log('[Seed] Seeding initial users...');
+    console.log('[Seed] Seeding initial users and admin...');
     const defaultUsers = [
+      {
+        id: 'usr-admin-01',
+        name: 'FocusZone Administrator',
+        mobile: '9999999999',
+        email: 'admin@focuszonelibrary.com',
+        password: hashedAdminPass,
+        role: 'admin',
+        address: 'Library Headquarters, Civil Lines',
+        plan: 'Staff Access',
+        planId: 'staff',
+        seat: 'None',
+        joiningDate: '2026-01-01',
+        expiryDate: '2099-12-31',
+        status: 'Active',
+        history: JSON.stringify(['Master Administrator Account Provisioned'])
+      },
       {
         id: 'usr-101',
         name: 'Vikramaditya Sharma',
-        mobile: '+91 98765 43210',
+        mobile: '9876543210',
         email: 'vikram.sharma@example.com',
+        password: hashedStudentPass,
+        role: 'student',
         address: 'Flat 302, Green Avenue, Model Town',
         plan: 'Quarterly Plan',
         planId: 'quarterly',
@@ -348,8 +386,10 @@ async function seedDataIfEmpty() {
       {
         id: 'usr-102',
         name: 'Aakriti Sen',
-        mobile: '+91 98123 45678',
+        mobile: '9812345678',
         email: 'aakriti.sen@example.com',
+        password: hashedStudentPass,
+        role: 'student',
         address: 'B-14, Shivalik Enclave, Civil Lines',
         plan: '6 Months Plan',
         planId: 'half-yearly',
@@ -358,42 +398,24 @@ async function seedDataIfEmpty() {
         expiryDate: '2027-01-15',
         status: 'Active',
         history: JSON.stringify(['Joined on 15 Jul 2026 (Assigned Seat B04)'])
-      },
-      {
-        id: 'usr-103',
-        name: 'Rohan Deshmukh',
-        mobile: '+91 98234 56789',
-        email: 'rohan.deshmukh@example.com',
-        address: 'House 88, Sector 12, Urban Estate',
-        plan: 'Yearly Plan',
-        planId: 'yearly',
-        seat: 'A12',
-        joiningDate: '2026-01-10',
-        expiryDate: '2027-01-09',
-        status: 'Active',
-        history: JSON.stringify(['Joined on 10 Jan 2026 (Assigned Seat A12)'])
-      },
-      {
-        id: 'usr-104',
-        name: 'Pooja Sharma',
-        mobile: '+91 98345 67890',
-        email: 'pooja.sharma@example.com',
-        address: 'Near Old Bus Stand, Teachers Colony',
-        plan: 'Monthly Plan',
-        planId: 'monthly',
-        seat: 'A01',
-        joiningDate: '2026-09-24',
-        expiryDate: '2026-10-23',
-        status: 'Active',
-        history: JSON.stringify(['Joined on 24 Sep 2026 (Assigned Seat A01)'])
       }
     ];
 
     for (const u of defaultUsers) {
       await db.query(`
-        INSERT INTO users (id, name, mobile, email, address, plan, planId, seat, joiningDate, expiryDate, status, history)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [u.id, u.name, u.mobile, u.email, u.address, u.plan, u.planId, u.seat, u.joiningDate, u.expiryDate, u.status, u.history]);
+        INSERT INTO users (id, name, mobile, email, password, role, address, plan, planId, seat, joiningDate, expiryDate, status, history)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [u.id, u.name, u.mobile, u.email, u.password, u.role, u.address, u.plan, u.planId, u.seat, u.joiningDate, u.expiryDate, u.status, u.history]);
+    }
+  } else {
+    // If users table has rows but missing admin, ensure master admin exists
+    const [adminCheck]: any = await db.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+    if (adminCheck.length === 0) {
+      await db.query(`
+        INSERT INTO users (id, name, mobile, email, password, role, address, plan, planId, seat, joiningDate, expiryDate, status, history)
+        VALUES ('usr-admin-01', 'FocusZone Administrator', '9999999999', 'admin@focuszonelibrary.com', ?, 'admin', 'Headquarters', 'Staff', 'staff', 'None', '2026-01-01', '2099-12-31', 'Active', '["Master Admin Initialized"]')
+      `, [hashedAdminPass]);
+      console.log('[Seed] Master Admin account created (admin@focuszonelibrary.com / admin123)');
     }
   }
 

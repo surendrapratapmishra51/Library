@@ -132,23 +132,27 @@ export const DashboardStats: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              {recentlyAdded.map((user) => (
-                <div
-                  key={user.id}
-                  className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <p className="font-bold text-slate-900">{user.name}</p>
-                    <p className="text-[11px] text-slate-500">{user.mobile} · {user.plan}</p>
+              {recentlyAdded.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No active members enrolled yet.</p>
+              ) : (
+                recentlyAdded.map((user) => (
+                  <div
+                    key={user.id}
+                    className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-900">{user.name}</p>
+                      <p className="text-[11px] text-slate-500">{user.mobile} · {user.plan}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {user.seat}
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{user.joiningDate}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      {user.seat}
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{user.joiningDate}</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -225,20 +229,24 @@ export const DashboardStats: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              {seatChangeActivities.map((act) => (
-                <div
-                  key={act.id}
-                  className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 text-xs space-y-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-900">{act.title}</span>
-                    <span className="text-[10px] text-slate-400">{act.timestamp}</span>
+              {seatChangeActivities.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No seat assignment logs yet.</p>
+              ) : (
+                seatChangeActivities.map((act) => (
+                  <div
+                    key={act.id}
+                    className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 text-xs space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-900">{act.title}</span>
+                      <span className="text-[10px] text-slate-400">{act.timestamp}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      {act.details}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-snug">
-                    {act.details}
-                  </p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 

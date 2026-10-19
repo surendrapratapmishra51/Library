@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDatabase } from './config/db.js';
+import { syncDatabase } from './models/index.js';
 import apiRouter from './routes/api.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,15 +20,15 @@ app.use(express.json());
 // API Routes
 app.use('/api', apiRouter);
 
-// Start server and initialize DB
+// Start server and synchronize Sequelize DB
 async function startServer() {
   try {
-    console.log('[Server] Initializing MySQL Database...');
-    await initDatabase();
+    console.log('[Server] Connecting & Synchronizing Sequelize Models...');
+    await syncDatabase();
     
     app.listen(PORT, () => {
       console.log(`🚀 [Backend Server] Running on http://localhost:${PORT}`);
-      console.log(`🔌 [API Endpoint] http://localhost:${PORT}/api/health`);
+      console.log(`🔌 [API Health] http://localhost:${PORT}/api/health`);
     });
   } catch (error: any) {
     console.error('❌ Failed to start server:', error.message);
