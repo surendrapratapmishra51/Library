@@ -4,11 +4,19 @@ import Seat from './Seat.js';
 import MembershipPlan from './Plan.js';
 import Activity from './Activity.js';
 import Payment from './Payment.js';
+import Floor from './Floor.js';
+import SeatAllocation from './SeatAllocation.js';
 import bcrypt from 'bcryptjs';
 
 // Define Associations
 User.hasMany(Payment, { foreignKey: 'user_id', as: 'payments' });
 Payment.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+Floor.hasMany(Seat, { foreignKey: 'floor_id', as: 'seats' });
+Seat.belongsTo(Floor, { foreignKey: 'floor_id', as: 'floor_info' });
+
+User.hasMany(SeatAllocation, { foreignKey: 'user_id', as: 'allocations' });
+SeatAllocation.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 export const syncDatabase = async () => {
   try {
@@ -104,6 +112,30 @@ export const syncDatabase = async () => {
     try {
       const [seatCols]: any = await sequelize.query('SHOW COLUMNS FROM seats');
       const seatColNames = seatCols.map((c: any) => c.Field);
+      
+      // Make section nullable to cleanly eliminate the Section concept from new seats
+      try {
+        await sequelize.query("ALTER TABLE seats MODIFY COLUMN section VARCHAR(20) NULL DEFAULT ''");
+      } catch (secErr: any) {
+        // Ignored if already nullable
+      }
+
+      // Add floor_id and floor_name
+      if (!seatColNames.includes('floor_id')) {
+        await sequelize.query("ALTER TABLE seats ADD COLUMN floor_id VARCHAR(50) NULL");
+      }
+      if (!seatColNames.includes('floor_name')) {
+        await sequelize.query("ALTER TABLE seats ADD COLUMN floor_name VARCHAR(100) NULL");
+      }
+      if (!seatColNames.includes('description')) {
+        await sequelize.query("ALTER TABLE seats ADD COLUMN description VARCHAR(255) NULL");
+      }
+
+      // Allow floor to be nullable (for unassigned / no-floor seats)
+      try {
+        await sequelize.query("ALTER TABLE seats MODIFY COLUMN floor INT NULL DEFAULT 1");
+      } catch (flErr: any) {}
+
       if (!seatColNames.includes('has_power_outlet') && seatColNames.includes('hasPowerOutlet')) {
         await sequelize.query("ALTER TABLE seats CHANGE COLUMN hasPowerOutlet has_power_outlet BOOLEAN DEFAULT TRUE");
       }
@@ -169,7 +201,7 @@ export const syncDatabase = async () => {
       console.warn('[DB Migration Warning] activities table check:', e.message);
     }
 
-    // Seed Initial Master Admin and Data if table is empty
+    // Seed Initial Master Admin and Data
     await seedInitialData();
 
     return true;
@@ -203,7 +235,7 @@ const seedInitialData = async () => {
     console.log('🌱 [Seed] Master Admin account created (admin@focuszonelibrary.com / admin123)');
   }
 
-  // Clean up any old dummy users & fake seat occupants from prior runs
+  // 2. Clean up any dummy users
   try {
     await User.destroy({ where: { id: 'usr-101' } });
     const realStudentsCount = await User.count({ where: { role: 'student' } });
@@ -316,39 +348,131 @@ const seedInitialData = async () => {
     console.log('🌱 [Seed] Default membership plans created.');
   }
 
-  // 4. Seed Seats
+  // 4. Seed Initial Floors
+  const floorCount = await Floor.count();
+  if (floorCount === 0) {
+    await Floor.bulkCreate([
+      {
+        id: 'floor-ground',
+        name: 'Ground Floor',
+        floor_number: 1,
+        description: 'Main study hall with quiet zone and natural lighting',
+        status: 'Active',
+        sort_order: 1
+      },
+      {
+        id: 'floor-first',
+        name: 'First Floor',
+        floor_number: 2,
+        description: 'Upper reading floor with silent individual cubicles',
+        status: 'Active',
+        sort_order: 2
+      }
+    ]);
+    console.log('🌱 [Seed] Initial Floors created: Ground Floor & First Floor');
+  }
+
+  // 5. Seed / Update Seats and link with floors
   const seatsCount = await Seat.count();
   if (seatsCount === 0) {
-    const sections = [
-      { section: 'A', floor: 1 },
-      { section: 'B', floor: 1 },
-      { section: 'C', floor: 2 },
-      { section: 'D', floor: 2 }
-    ];
     const seatRecords = [];
-    for (const sec of sections) {
-      for (let i = 1; i <= 25; i++) {
-        const numStr = i < 10 ? `0${i}` : `${i}`;
-        const seatNumber = `${sec.section}${numStr}`;
-        const isCornerOrWindow = (i % 5 === 1 || i % 5 === 0);
-        seatRecords.push({
-          id: `seat-${sec.section.toLowerCase()}-${numStr}`,
-          number: seatNumber,
-          floor: sec.floor,
-          section: sec.section,
-          status: 'available',
-          has_power_outlet: true,
-          has_desk_lamp: true,
-          is_corner_or_window: isCornerOrWindow,
-          occupied_by: null,
-          assigned_until: null
-        });
-      }
+    // Floor 1 (Ground Floor) - 50 desks (A01 - A50)
+    for (let i = 1; i <= 50; i++) {
+      const numStr = i < 10 ? `0${i}` : `${i}`;
+      const seatNumber = `A${numStr}`;
+      const isCornerOrWindow = (i % 5 === 1 || i % 5 === 0);
+      seatRecords.push({
+        id: `seat-a-${numStr}`,
+        number: seatNumber,
+        floor: 1,
+        floor_id: 'floor-ground',
+        floor_name: 'Ground Floor',
+        section: '',
+        description: isCornerOrWindow ? 'Corner desk with natural window view' : 'Standard silent desk',
+        status: 'available' as const,
+        has_power_outlet: true,
+        has_desk_lamp: true,
+        is_corner_or_window: isCornerOrWindow,
+        occupied_by: null,
+        assigned_until: null
+      });
+    }
+
+    // Floor 2 (First Floor) - 50 desks (B01 - B50)
+    for (let i = 1; i <= 50; i++) {
+      const numStr = i < 10 ? `0${i}` : `${i}`;
+      const seatNumber = `B${numStr}`;
+      const isCornerOrWindow = (i % 5 === 1 || i % 5 === 0);
+      seatRecords.push({
+        id: `seat-b-${numStr}`,
+        number: seatNumber,
+        floor: 2,
+        floor_id: 'floor-first',
+        floor_name: 'First Floor',
+        section: '',
+        description: isCornerOrWindow ? 'Window carrel with dual power outlet' : 'Standard silent cubicle',
+        status: 'available' as const,
+        has_power_outlet: true,
+        has_desk_lamp: true,
+        is_corner_or_window: isCornerOrWindow,
+        occupied_by: null,
+        assigned_until: null
+      });
     }
 
     await Seat.bulkCreate(seatRecords);
-    console.log('🌱 [Seed] 100 seats generated and seeded.');
+    console.log('🌱 [Seed] 100 seats generated across Ground Floor & First Floor (no sections).');
+  } else {
+    // Ensure all existing seats have floor_id and floor_name populated
+    try {
+      await Seat.update(
+        { floor_id: 'floor-ground', floor_name: 'Ground Floor' },
+        { where: { floor: 1, floor_id: null } }
+      );
+      await Seat.update(
+        { floor_id: 'floor-first', floor_name: 'First Floor' },
+        { where: { floor: 2, floor_id: null } }
+      );
+    } catch (e) {}
+  }
+
+  // 6. Seed initial allocation history for any currently occupied seat
+  try {
+    const activeUsersWithSeats = await User.findAll({
+      where: {
+        role: 'student',
+        status: 'Active',
+      }
+    });
+
+    for (const u of activeUsersWithSeats) {
+      if (u.seat && u.seat !== 'None') {
+        const existingAlloc = await SeatAllocation.findOne({
+          where: { user_id: u.id, seat_number: u.seat, status: 'Active' }
+        });
+        if (!existingAlloc) {
+          const seatRec = await Seat.findOne({ where: { number: u.seat } });
+          await SeatAllocation.create({
+            id: `alloc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            user_id: u.id,
+            user_name: u.name,
+            user_identifier: u.mobile || u.email,
+            seat_id: seatRec ? seatRec.id : null,
+            seat_number: u.seat,
+            floor_id: seatRec ? seatRec.floor_id : null,
+            floor_name: seatRec ? seatRec.floor_name : 'Ground Floor',
+            start_date: u.joining_date || new Date().toISOString().split('T')[0],
+            end_date: u.expiry_date,
+            status: 'Active',
+            action_type: 'Enrolled',
+            notes: `Initial allocation for ${u.name}`
+          });
+        }
+      }
+    }
+  } catch (allocSeedErr: any) {
+    console.warn('[Seed Allocation Warning]:', allocSeedErr.message);
   }
 };
 
-export { sequelize, User, Seat, MembershipPlan, Activity, Payment };
+export { sequelize, User, Seat, MembershipPlan, Activity, Payment, Floor, SeatAllocation };

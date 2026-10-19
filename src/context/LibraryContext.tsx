@@ -4,11 +4,13 @@ import { mockSeats } from '../data/mockSeats';
 import { mockDefaultStudent } from '../data/mockStudents';
 import { mockInitialUsers } from '../data/mockUsers';
 import { mockPlans } from '../data/mockPlans';
-import { userApi, seatApi, planApi, activityApi, authApi } from '../services';
+import { Floor, FloorStats } from '../types';
+import { userApi, seatApi, planApi, activityApi, authApi, floorApi, BulkAddSeatsResponse } from '../services';
 import { calculateExpiryDate, getTodayDateString } from '../utils/dateUtils';
 
 interface LibraryContextType {
   seats: Seat[];
+  floors: Floor[];
   users: AdminUser[];
   plans: MembershipPlan[];
   activities: ActivityItem[];
@@ -22,13 +24,26 @@ interface LibraryContextType {
   registerApplication: (formData: RegistrationFormData) => Promise<{ success: boolean; message: string }>;
   updateSeatStatus: (seatId: string, status: 'available' | 'occupied' | 'maintenance', occupant?: string) => void;
   
+  // Floor Management
+  refreshFloors: () => Promise<void>;
+  addFloor: (floorData: { name: string; description?: string; status?: 'Active' | 'Inactive'; floorNumber?: number | null; sortOrder?: number }) => Promise<{ success: boolean; message: string; floor?: Floor }>;
+  editFloor: (floorId: string, floorData: { name?: string; description?: string; status?: 'Active' | 'Inactive'; floorNumber?: number | null; sortOrder?: number }) => Promise<{ success: boolean; message: string; warning?: string | null; floor?: Floor }>;
+  deleteFloor: (floorId: string) => Promise<{ success: boolean; message: string }>;
+  toggleFloorStatus: (floorId: string) => Promise<{ success: boolean; message: string; warning?: string | null }>;
+
+  // Seat Management
+  refreshSeats: () => Promise<void>;
+  addSeat: (seatData: { number: string; floorId?: string | null; description?: string; status?: SeatStatus }) => Promise<{ success: boolean; message: string; seat?: Seat }>;
+  bulkAddSeats: (payload: { count: number; prefix?: string; startNumber: number; floorId?: string | null; description?: string }) => Promise<BulkAddSeatsResponse>;
+  transferSeat: (userId: string, newSeatNumber: string) => Promise<{ success: boolean; message: string; seat?: string }>;
+  releaseSeat: (payload: { userId?: string; seatNumber?: string }) => Promise<{ success: boolean; message: string }>;
+  removeSeat: (seatNumber: string) => { success: boolean; message: string };
+
   // Admin Operations
   addUser: (userData: Omit<AdminUser, 'id' | 'history'>) => Promise<{ success: boolean; message: string; user?: AdminUser }>;
   editUser: (userId: string, userData: Partial<AdminUser>) => Promise<{ success: boolean; message: string }>;
   discontinueUser: (userId: string) => Promise<{ success: boolean; message: string }>;
   changeUserSeat: (userId: string, newSeatNumber: string) => Promise<{ success: boolean; message: string }>;
-  addSeat: (seatData: { number: string; floor: 1 | 2; section: 'A' | 'B' | 'C' | 'D'; status: SeatStatus }) => { success: boolean; message: string };
-  removeSeat: (seatNumber: string) => { success: boolean; message: string };
   addPlan: (planData: Omit<MembershipPlan, 'id'>) => { success: boolean; message: string };
   editPlan: (planId: string, planData: Partial<MembershipPlan>) => { success: boolean; message: string };
   togglePlanStatus: (planId: string) => { success: boolean; message: string };
@@ -137,15 +152,40 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [selectedSeatForBooking, setSelectedSeatForBooking] = useState<Seat | null>(null);
 
+  const [floors, setFloors] = useState<Floor[]>([]);
+
+  const refreshFloors = async () => {
+    try {
+      const res = await floorApi.getFloors();
+      if (res && Array.isArray(res.floors)) {
+        setFloors(res.floors);
+      }
+    } catch (err: any) {
+      console.info('[floorApi.getFloors]', err.message);
+    }
+  };
+
+  const refreshSeats = async () => {
+    try {
+      const res = await seatApi.getSeats();
+      if (Array.isArray(res)) {
+        setSeats(res);
+      }
+    } catch (err: any) {
+      console.info('[seatApi.getSeats]', err.message);
+    }
+  };
+
   // Fetch from MySQL Backend on mount using centralized services
   useEffect(() => {
     const fetchBackendData = async () => {
       try {
-        const [seatsResult, usersResult, plansResult, actResult] = await Promise.allSettled([
+        const [seatsResult, usersResult, plansResult, actResult, floorsResult] = await Promise.allSettled([
           seatApi.getSeats(),
           userApi.getUsers(),
           planApi.getPlans(),
           activityApi.getActivities(),
+          floorApi.getFloors(),
         ]);
 
         if (seatsResult.status === 'fulfilled' && Array.isArray(seatsResult.value)) {
@@ -159,6 +199,9 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         if (actResult.status === 'fulfilled' && Array.isArray(actResult.value)) {
           setActivities(actResult.value);
+        }
+        if (floorsResult.status === 'fulfilled' && floorsResult.value && Array.isArray(floorsResult.value.floors)) {
+          setFloors(floorsResult.value.floors);
         }
       } catch (err) {
         console.info('Backend API running in local fallback mode.');
@@ -511,44 +554,153 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Floor Management Implementations
+  const addFloor = async (floorData: {
+    name: string;
+    description?: string;
+    status?: 'Active' | 'Inactive';
+    floorNumber?: number | null;
+    sortOrder?: number;
+  }): Promise<{ success: boolean; message: string; floor?: Floor }> => {
+    try {
+      const res = await floorApi.createFloor(floorData);
+      if (res.success && res.floor) {
+        setFloors((prev) => [...prev, res.floor!]);
+        await refreshFloors();
+        return { success: true, message: res.message, floor: res.floor };
+      }
+      return { success: false, message: res.message || 'Failed to create floor.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to create floor.' };
+    }
+  };
+
+  const editFloor = async (
+    floorId: string,
+    floorData: { name?: string; description?: string; status?: 'Active' | 'Inactive'; floorNumber?: number | null; sortOrder?: number }
+  ): Promise<{ success: boolean; message: string; warning?: string | null; floor?: Floor }> => {
+    try {
+      const res = await floorApi.updateFloor(floorId, floorData);
+      if (res.success && res.floor) {
+        setFloors((prev) => prev.map((f) => (f.id === floorId ? res.floor! : f)));
+        await Promise.all([refreshFloors(), refreshSeats()]);
+        return { success: true, message: res.message, warning: res.warning, floor: res.floor };
+      }
+      return { success: false, message: res.message || 'Failed to update floor.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to update floor.' };
+    }
+  };
+
+  const deleteFloor = async (floorId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await floorApi.deleteFloor(floorId);
+      if (res.success) {
+        setFloors((prev) => prev.filter((f) => f.id !== floorId));
+        return { success: true, message: res.message };
+      }
+      return { success: false, message: res.message || 'Failed to remove floor.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to remove floor.' };
+    }
+  };
+
+  const toggleFloorStatus = async (floorId: string): Promise<{ success: boolean; message: string; warning?: string | null }> => {
+    const current = floors.find((f) => f.id === floorId);
+    if (!current) return { success: false, message: 'Floor not found.' };
+    const nextStatus = current.status === 'Active' ? 'Inactive' : 'Active';
+    return editFloor(floorId, { status: nextStatus });
+  };
+
   // Add Seat
-  const addSeat = (seatData: {
+  const addSeat = async (seatData: {
     number: string;
-    floor: 1 | 2;
-    section: 'A' | 'B' | 'C' | 'D';
-    status: SeatStatus;
-  }): { success: boolean; message: string } => {
+    floorId?: string | null;
+    description?: string;
+    status?: SeatStatus;
+  }): Promise<{ success: boolean; message: string; seat?: Seat }> => {
     const cleanNumber = seatData.number.trim().toUpperCase();
     if (!cleanNumber) {
       return { success: false, message: 'Please enter a valid seat number.' };
     }
 
-    const exists = seats.some((s) => s.number.toUpperCase() === cleanNumber);
-    if (exists) {
-      return { success: false, message: `Seat ${cleanNumber} already exists in the library layout.` };
+    try {
+      const res = await seatApi.addSeat({
+        number: cleanNumber,
+        floorId: seatData.floorId,
+        description: seatData.description,
+        status: seatData.status || 'available',
+      });
+
+      if (res.success && res.seat) {
+        setSeats((prev) => [...prev, res.seat!]);
+        await Promise.all([refreshSeats(), refreshFloors()]);
+        return { success: true, message: res.message, seat: res.seat };
+      }
+      return { success: false, message: res.message || 'Failed to add seat.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to create seat.' };
     }
+  };
 
-    const newSeatObj: Seat = {
-      id: `seat-${cleanNumber.toLowerCase()}`,
-      number: cleanNumber,
-      floor: seatData.floor,
-      section: seatData.section,
-      status: seatData.status,
-      hasPowerOutlet: true,
-      hasDeskLamp: true
-    };
+  // Bulk Add Seats
+  const bulkAddSeats = async (payload: {
+    count: number;
+    prefix?: string;
+    startNumber: number;
+    floorId?: string | null;
+    description?: string;
+  }): Promise<BulkAddSeatsResponse> => {
+    try {
+      const res = await seatApi.bulkAddSeats(payload);
+      if (res.success) {
+        await Promise.all([refreshSeats(), refreshFloors()]);
+      }
+      return res;
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.data?.error || err?.message || 'Bulk creation failed.',
+        requestedCount: payload.count,
+        createdCount: 0,
+        skippedCount: payload.count,
+        createdSeats: [],
+        skippedSeats: []
+      };
+    }
+  };
 
-    setSeats((prev) => [...prev, newSeatObj]);
+  // Seat Transfer
+  const transferSeat = async (userId: string, newSeatNumber: string): Promise<{ success: boolean; message: string; seat?: string }> => {
+    try {
+      const res = await seatApi.transferSeat({ userId, newSeatNumber });
+      if (res.success) {
+        await Promise.all([refreshSeats(), refreshFloors()]);
+        // Refresh users
+        const updatedUsers = await userApi.getUsers();
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        return { success: true, message: res.message, seat: res.seat };
+      }
+      return { success: false, message: res.message || 'Seat transfer failed.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Seat transfer failed.' };
+    }
+  };
 
-    // Sync to backend via seatApi
-    seatApi.addSeat({
-      number: cleanNumber,
-      floor: seatData.floor,
-      section: seatData.section,
-      status: seatData.status,
-    }).catch((err) => console.info('[seatApi.addSeat]', err.message));
-
-    return { success: true, message: `Seat ${cleanNumber} added successfully to Floor ${seatData.floor}, Section ${seatData.section}.` };
+  // Seat Release
+  const releaseSeat = async (payload: { userId?: string; seatNumber?: string }): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await seatApi.releaseSeat(payload);
+      if (res.success) {
+        await Promise.all([refreshSeats(), refreshFloors()]);
+        const updatedUsers = await userApi.getUsers();
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        return { success: true, message: res.message };
+      }
+      return { success: false, message: res.message || 'Seat release failed.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Seat release failed.' };
+    }
   };
 
   // Remove Seat (Business Rule #5)
@@ -558,7 +710,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, message: `Seat ${seatNumber} not found.` };
     }
 
-    // Business rule: If seat is assigned to an active student, reject
     if (targetSeat.status === 'occupied') {
       return {
         success: false,
@@ -637,6 +788,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     <LibraryContext.Provider
       value={{
         seats,
+        floors,
         users,
         plans,
         activities,
@@ -649,6 +801,15 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         logout,
         registerApplication,
         updateSeatStatus,
+        refreshFloors,
+        refreshSeats,
+        addFloor,
+        editFloor,
+        deleteFloor,
+        toggleFloorStatus,
+        bulkAddSeats,
+        transferSeat,
+        releaseSeat,
         addUser,
         editUser,
         discontinueUser,

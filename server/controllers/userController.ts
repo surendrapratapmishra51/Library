@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { Op } from 'sequelize';
-import { User, Seat, Activity, MembershipPlan, Payment } from '../models/index.js';
+import { User, Seat, Activity, MembershipPlan, Payment, Floor, SeatAllocation } from '../models/index.js';
 import { calculateExpiryDate, isExpiryDateValid, isValidDateString, getTodayDateString } from '../utils/dateUtils.js';
 
 export const getUsers = async (_req: Request, res: Response) => {
@@ -84,13 +83,20 @@ export const createUser = async (req: Request, res: Response) => {
 
     // Verify seat availability
     const cleanSeat = seat && seat !== 'None' ? seat.trim().toUpperCase() : 'None';
+    let seatRecord: Seat | null = null;
     if (cleanSeat !== 'None') {
-      const seatRecord = await Seat.findOne({ where: { number: cleanSeat } });
+      seatRecord = await Seat.findOne({ where: { number: cleanSeat } });
       if (!seatRecord) {
         return res.status(400).json({ error: `Seat ${cleanSeat} does not exist in library layout.` });
       }
       if (seatRecord.status !== 'available') {
         return res.status(400).json({ error: `Seat ${cleanSeat} is currently ${seatRecord.status} (assigned to ${seatRecord.occupied_by || 'another member'}). Please choose an available seat.` });
+      }
+      if (seatRecord.floor_id) {
+        const floorRec = await Floor.findByPk(seatRecord.floor_id);
+        if (floorRec && floorRec.status === 'Inactive') {
+          return res.status(400).json({ error: `Cannot assign seat on deactivated floor "${floorRec.name}". Please select a seat on an active floor.` });
+        }
       }
     }
 
@@ -187,12 +193,32 @@ export const createUser = async (req: Request, res: Response) => {
       history
     });
 
-    // Mark seat as occupied
-    if (cleanSeat !== 'None') {
+    // Mark seat as occupied and record allocation
+    if (cleanSeat !== 'None' && seatRecord) {
       await Seat.update(
         { status: 'occupied', occupied_by: cleanName, assigned_until: cleanExpiryDate },
         { where: { number: cleanSeat } }
       );
+
+      try {
+        await SeatAllocation.create({
+          id: `alloc-${Date.now()}`,
+          user_id: id,
+          user_name: cleanName,
+          user_identifier: cleanMobile,
+          seat_id: seatRecord.id,
+          seat_number: cleanSeat,
+          floor_id: seatRecord.floor_id,
+          floor_name: seatRecord.floor_name || 'No Floor',
+          start_date: cleanJoiningDate,
+          end_date: cleanExpiryDate,
+          status: 'Active',
+          action_type: 'Enrolled',
+          notes: `Enrolled for ${plan || 'Plan'}`
+        });
+      } catch (allocErr: any) {
+        console.warn('[SeatAllocation Warning]:', allocErr.message);
+      }
     }
 
     // Requirement 8: Do not create a successful payment transaction when the received amount is zero
@@ -290,27 +316,71 @@ export const updateUser = async (req: Request, res: Response) => {
 
     // Reallocate seat if changed
     if (fields.seat && fields.seat !== user.seat) {
-      // Free old seat
-      if (user.seat && user.seat !== 'None') {
-        await Seat.update({ status: 'available', occupied_by: null, assigned_until: null }, { where: { number: user.seat } });
+      const oldSeat = user.seat;
+      const newSeatNum = fields.seat.trim().toUpperCase();
+      const todayStr = getTodayDateString();
+
+      // Free old seat and close previous active allocation
+      if (oldSeat && oldSeat !== 'None') {
+        await Seat.update({ status: 'available', occupied_by: null, assigned_until: null }, { where: { number: oldSeat } });
+        await SeatAllocation.update(
+          { status: 'Transferred', release_date: todayStr, notes: `Transferred to Seat ${newSeatNum}` },
+          { where: { user_id: user.id, seat_number: oldSeat, status: 'Active' } }
+        );
       }
-      // Occupy new seat
-      if (fields.seat !== 'None') {
-        await Seat.update({ status: 'occupied', occupied_by: fields.name || user.name, assigned_until: effExpiryDate }, { where: { number: fields.seat } });
+
+      // Occupy new seat and create new active allocation
+      if (newSeatNum !== 'None') {
+        const targetSeat = await Seat.findOne({ where: { number: newSeatNum } });
+        if (targetSeat) {
+          if (targetSeat.floor_id) {
+            const floorRec = await Floor.findByPk(targetSeat.floor_id);
+            if (floorRec && floorRec.status === 'Inactive') {
+              return res.status(400).json({ error: `Cannot assign seat on deactivated floor "${floorRec.name}".` });
+            }
+          }
+          await targetSeat.update({
+            status: 'occupied',
+            occupied_by: fields.name || user.name,
+            assigned_until: effExpiryDate
+          });
+
+          await SeatAllocation.create({
+            id: `alloc-${Date.now()}`,
+            user_id: user.id,
+            user_name: fields.name || user.name,
+            user_identifier: user.mobile,
+            seat_id: targetSeat.id,
+            seat_number: newSeatNum,
+            floor_id: targetSeat.floor_id,
+            floor_name: targetSeat.floor_name || 'No Floor',
+            start_date: todayStr,
+            end_date: effExpiryDate,
+            status: 'Active',
+            action_type: 'Transferred',
+            notes: `Transferred from Seat ${oldSeat || 'None'}`
+          });
+        }
       }
     } else if (fields.expiryDate && user.seat && user.seat !== 'None') {
       // Update assigned_until if expiryDate was updated
       await Seat.update({ assigned_until: effExpiryDate }, { where: { number: user.seat } });
+      await SeatAllocation.update({ end_date: effExpiryDate }, { where: { user_id: user.id, seat_number: user.seat, status: 'Active' } });
     }
 
     // Handle discontinuation
     if (fields.status === 'Discontinued' && user.status !== 'Discontinued') {
+      const todayStr = getTodayDateString();
       if (user.seat && user.seat !== 'None') {
         await Seat.update({ status: 'available', occupied_by: null, assigned_until: null }, { where: { number: user.seat } });
+        await SeatAllocation.update(
+          { status: 'Released', release_date: todayStr, notes: 'Member discontinued' },
+          { where: { user_id: user.id, seat_number: user.seat, status: 'Active' } }
+        );
       }
       fields.previous_seat = user.seat;
       fields.seat = 'None';
-      fields.discontinued_date = new Date().toISOString().split('T')[0];
+      fields.discontinued_date = todayStr;
     }
 
     // Password hash if updating password

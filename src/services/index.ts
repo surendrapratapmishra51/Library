@@ -9,3 +9,4 @@ export * from './seatApi';
 export * from './planApi';
 export * from './activityApi';
 export * from './paymentApi';
+export * from './floorApi';

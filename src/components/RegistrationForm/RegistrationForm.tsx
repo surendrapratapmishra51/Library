@@ -302,7 +302,7 @@ export const RegistrationForm: React.FC = () => {
             <option value="">-- Let Admin Auto-Assign Best Desk --</option>
             {availableSeats.map((seat) => (
               <option key={seat.id} value={seat.number}>
-                Seat {seat.number} (Floor {seat.floor} · Section {seat.section})
+                Seat {seat.number} ({seat.floorName || (seat.floor ? `Floor ${seat.floor}` : 'No Floor')})
               </option>
             ))}
           </select>

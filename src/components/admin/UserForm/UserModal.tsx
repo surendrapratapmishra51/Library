@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, UserPlus, AlertCircle, Receipt } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, UserPlus, AlertCircle, Receipt, Armchair, Building2, Undo2 } from 'lucide-react';
 import { AdminUser } from '../../../types';
 import { useLibrary } from '../../../context/LibraryContext';
 import { Button } from '../../common/Button';
@@ -12,7 +12,7 @@ interface UserModalProps {
 }
 
 export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClose }) => {
-  const { seats, plans, addUser, editUser } = useLibrary();
+  const { seats, floors, plans, addUser, editUser, releaseSeat } = useLibrary();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -37,16 +37,63 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFloorFilter, setSelectedFloorFilter] = useState<string>('all');
+  const [isReleasingSeat, setIsReleasingSeat] = useState(false);
 
-  // Available seats plus the user's currently held seat (if editing)
-  const availableSeats = seats.filter(
-    (s) => s.status === 'available' || (userToEdit && s.number === userToEdit.seat)
-  );
+  // Eligible seats: available seats on active floors (or unassigned), plus currently held seat if editing
+  const eligibleSeats = useMemo(() => {
+    return seats.filter((s) => {
+      const isCurrentHeld = Boolean(userToEdit && s.number === userToEdit.seat);
+      if (!isCurrentHeld && s.status !== 'available') return false;
+
+      // Filter out seats on inactive floors for new assignment
+      if (s.floorId) {
+        const fl = floors.find((f) => f.id === s.floorId);
+        if (fl && fl.status === 'Inactive' && !isCurrentHeld) {
+          return false;
+        }
+      }
+
+      if (selectedFloorFilter !== 'all') {
+        if (selectedFloorFilter === 'unassigned') {
+          if (s.floorId) return false;
+        } else if (s.floorId !== selectedFloorFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [seats, floors, userToEdit, selectedFloorFilter]);
 
   // Only active plans for new memberships
   const activePlans = plans.filter((p) => p.status === 'Active' || (userToEdit && p.id === userToEdit.planId));
 
+  const handleExplicitReleaseSeat = async () => {
+    if (!userToEdit || !userToEdit.seat || userToEdit.seat === 'None') return;
+    const confirmed = window.confirm(
+      `Are you sure you want to release Seat ${userToEdit.seat} from ${userToEdit.name}? The desk will become immediately available for other members.`
+    );
+    if (!confirmed) return;
+
+    setIsReleasingSeat(true);
+    try {
+      const res = await releaseSeat({ userId: userToEdit.id, seatNumber: userToEdit.seat });
+      if (res.success) {
+        setFormData((prev) => ({ ...prev, seat: 'None' }));
+      } else {
+        setErrorMsg(res.message);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to release seat.');
+    } finally {
+      setIsReleasingSeat(false);
+    }
+  };
+
   useEffect(() => {
+    if (!isOpen) return;
+
     if (userToEdit) {
       const p = plans.find((pl) => pl.id === userToEdit.planId);
       const bFee = userToEdit.baseFee ?? (p ? p.price : 1200);
@@ -80,6 +127,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
       const initialPlan = activePlans[0] || plans[0];
       const initialExpiry = calculateExpiryDate(today, initialPlan);
       const bFee = initialPlan ? initialPlan.price : 1200;
+      const firstAvailableSeat = seats.find((s) => s.status === 'available')?.number || '';
 
       setFormData({
         name: '',
@@ -89,7 +137,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
         address: '',
         planId: initialPlan?.id || 'monthly',
         plan: initialPlan?.name || 'Monthly Plan',
-        seat: availableSeats[0]?.number || '',
+        seat: firstAvailableSeat,
         joiningDate: today,
         expiryDate: initialExpiry,
         status: 'Active',
@@ -103,7 +151,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
       });
     }
     setErrorMsg(null);
-  }, [userToEdit, isOpen, plans]);
+  }, [userToEdit, isOpen, plans, seats]);
 
   if (!isOpen) return null;
 
@@ -236,6 +284,8 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs overflow-hidden">
       <div className="bg-white rounded-2xl max-w-2xl sm:max-w-3xl w-full shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -355,8 +405,8 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
             </p>
           </div>
 
-          {/* Membership Plan & Assigned Seat */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Membership Plan & Location / Seat Assignment */}
+          <div className="space-y-3">
             <div>
               <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
                 Membership Plan *
@@ -375,28 +425,81 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
               </select>
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
-                <span>Assigned Seat *</span>
-                <span className="text-[10px] text-emerald-700 font-normal">
-                  ({availableSeats.length} available)
-                </span>
-              </label>
-              <select
-                name="seat"
-                required={formData.status === 'Active'}
-                value={formData.seat}
-                onChange={handleChange}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-mono font-bold"
-              >
-                {formData.status === 'Discontinued' && <option value="None">None (Discontinued)</option>}
-                <option value="">-- Choose Available Seat --</option>
-                {availableSeats.map((s) => (
-                  <option key={s.id} value={s.number}>
-                    Seat {s.number} (Floor {s.floor} · Sec {s.section})
-                  </option>
-                ))}
-              </select>
+            {/* Current seat release badge for existing member */}
+            {userToEdit && userToEdit.seat && userToEdit.seat !== 'None' && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-amber-900 font-medium">
+                  <Armchair className="w-4 h-4 text-amber-700" />
+                  <span>
+                    Currently Assigned: <strong className="font-mono font-bold text-amber-950">Seat {userToEdit.seat}</strong>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExplicitReleaseSeat}
+                  disabled={isReleasingSeat || formData.seat === 'None'}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold text-[11px] transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  <span>{formData.seat === 'None' ? 'Seat Released' : 'Release Seat'}</span>
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Optional Floor Selector */}
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Floor (Optional)</span>
+                </label>
+                <select
+                  value={selectedFloorFilter}
+                  onChange={(e) => setSelectedFloorFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-medium text-xs"
+                >
+                  <option value="all">All Floors</option>
+                  {floors.map((fl) => (
+                    <option key={fl.id} value={fl.id} disabled={fl.status === 'Inactive'}>
+                      {fl.name} {fl.status === 'Inactive' ? '(Deactivated)' : ''}
+                    </option>
+                  ))}
+                  <option value="unassigned">No Floor / Direct Seats</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Filter available seats by floor or choose from any floor.
+                </p>
+              </div>
+
+              {/* Assigned Seat */}
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span>Assigned Seat *</span>
+                  <span className="text-[10px] text-emerald-700 font-normal">
+                    ({eligibleSeats.length} available)
+                  </span>
+                </label>
+                <select
+                  name="seat"
+                  required={formData.status === 'Active'}
+                  value={formData.seat}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-mono font-bold text-xs"
+                >
+                  {formData.status === 'Discontinued' && <option value="None">None (Discontinued)</option>}
+                  <option value="">-- Choose Available Seat --</option>
+                  {eligibleSeats.map((s) => (
+                    <option key={s.id} value={s.number}>
+                      Seat {s.number} ({s.floorName || (s.floor ? `Floor ${s.floor}` : 'No Floor')})
+                    </option>
+                  ))}
+                </select>
+                {formData.seat && (
+                  <p className="text-[10px] text-emerald-700 mt-1 font-medium">
+                    Selected: Seat {formData.seat}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 

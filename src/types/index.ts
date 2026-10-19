@@ -3,14 +3,54 @@ export type SeatStatus = 'available' | 'occupied' | 'maintenance';
 export interface Seat {
   id: string;
   number: string; // e.g. "A01", "B12"
-  floor: 1 | 2;
-  section: 'A' | 'B' | 'C' | 'D';
+  floor?: number | null;
+  floorId?: string | null;
+  floorName?: string | null;
+  section?: string | null; // deprecated legacy field, kept only for backwards compatibility
+  description?: string;
   status: SeatStatus;
   hasPowerOutlet: boolean;
   hasDeskLamp: boolean;
   isCornerOrWindow?: boolean;
-  occupiedBy?: string;
-  assignedUntil?: string;
+  occupiedBy?: string | null;
+  assignedUntil?: string | null;
+}
+
+export interface FloorStats {
+  totalSeats: number;
+  availableSeats: number;
+  occupiedSeats: number;
+  unavailableSeats: number;
+}
+
+export interface Floor {
+  id: string;
+  name: string;
+  floorNumber?: number | null;
+  description?: string;
+  status: 'Active' | 'Inactive';
+  sortOrder: number;
+  stats: FloorStats;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SeatAllocation {
+  id: string;
+  userId: string;
+  userName: string;
+  userIdentifier?: string | null;
+  seatId?: string | null;
+  seatNumber: string;
+  floorId?: string | null;
+  floorName?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  releaseDate?: string | null;
+  status: 'Active' | 'Transferred' | 'Released' | 'Expired';
+  actionType: 'Enrolled' | 'Transferred' | 'Released' | 'Renewed';
+  notes?: string | null;
+  createdAt?: string;
 }
 
 export interface Facility {

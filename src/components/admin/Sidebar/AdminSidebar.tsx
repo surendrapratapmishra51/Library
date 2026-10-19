@@ -18,7 +18,7 @@ interface AdminSidebarProps {
 }
 
 export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onClose }) => {
-  const { logout, stats } = useLibrary();
+  const { logout, stats, floors } = useLibrary();
 
   const navItems = [
     {
@@ -34,6 +34,13 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onCl
       exact: false,
       icon: Users,
       badge: stats.activeMembers
+    },
+    {
+      name: 'Manage Floors',
+      path: '/admin/floors',
+      exact: false,
+      icon: Building2,
+      badge: `${(floors || []).length} Floors`
     },
     {
       name: 'Manage Seats & Plans',

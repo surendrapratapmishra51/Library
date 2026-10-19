@@ -41,9 +41,9 @@ export const UserTable: React.FC = () => {
       // Search query (name or mobile or seat)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const matchesName = user.name.toLowerCase().includes(q);
-        const matchesMobile = user.mobile.includes(q);
-        const matchesSeat = user.seat.toLowerCase().includes(q);
+        const matchesName = (user.name || '').toLowerCase().includes(q);
+        const matchesMobile = user.mobile ? String(user.mobile).includes(q) : false;
+        const matchesSeat = (user.seat || '').toLowerCase().includes(q);
         if (!matchesName && !matchesMobile && !matchesSeat) {
           return false;
         }
@@ -215,7 +215,7 @@ export const UserTable: React.FC = () => {
                     <td className="p-4 font-mono">{user.mobile}</td>
                     <td className="p-4 font-medium text-slate-800">{user.plan}</td>
                     <td className="p-4">
-                      {user.status === 'Active' && user.seat !== 'None' ? (
+                      {user.status === 'Active' && user.seat && user.seat !== 'None' ? (
                         <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                           Seat {user.seat}
                         </span>

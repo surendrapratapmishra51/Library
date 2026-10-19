@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
+import { Seat } from '../../types';
 import { useLibrary } from '../../context/LibraryContext';
 import { SeatCard } from '../SeatCard/SeatCard';
 import { SeatDetailModal } from '../SeatDetailModal/SeatDetailModal';
-import { Seat } from '../../types';
-import { Search, Filter, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Search, Filter, RefreshCw, AlertCircle, Building2 } from 'lucide-react';
 
 interface SeatGridProps {
   onSelectSeat?: (seat: Seat) => void;
@@ -16,10 +16,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
   selectedSeatNumber, 
   isCompact = false 
 }) => {
-  const { seats, stats } = useLibrary();
+  const { seats, floors, stats } = useLibrary();
   
-  const [selectedFloor, setSelectedFloor] = useState<'all' | '1' | '2'>('all');
-  const [selectedSection, setSelectedSection] = useState<'all' | 'A' | 'B' | 'C' | 'D'>('all');
+  const [selectedFloor, setSelectedFloor] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'occupied'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -29,17 +28,19 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
   const filteredSeats = useMemo(() => {
     return seats.filter((seat) => {
       // Floor filter
-      if (selectedFloor !== 'all' && seat.floor.toString() !== selectedFloor) {
-        return false;
+      if (selectedFloor !== 'all') {
+        if (selectedFloor === 'unassigned') {
+          if (seat.floorId) return false;
+        } else if (seat.floorId !== selectedFloor) {
+          return false;
+        }
       }
-      // Section filter
-      if (selectedSection !== 'all' && seat.section !== selectedSection) {
-        return false;
-      }
+
       // Status filter
       if (statusFilter !== 'all' && seat.status !== statusFilter) {
         return false;
       }
+
       // Search query
       if (searchQuery.trim()) {
         const query = searchQuery.trim().toLowerCase();
@@ -51,7 +52,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
       }
       return true;
     });
-  }, [seats, selectedFloor, selectedSection, statusFilter, searchQuery]);
+  }, [seats, selectedFloor, statusFilter, searchQuery]);
 
   const handleSeatClick = (seat: Seat) => {
     if (onSelectSeat) {
@@ -63,49 +64,46 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Bar: Stats & Legend */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        
-        {/* Metric Counts */}
-        <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
-            <span className="text-slate-500">Total Seats:</span>
-            <span className="font-bold text-slate-900 font-mono text-sm">{stats.totalSeats}</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Available:</span>
-            <span className="font-bold font-mono text-sm text-emerald-800">{stats.availableSeats}</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-900">
-            <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-            <span>Occupied:</span>
-            <span className="font-bold font-mono text-sm text-rose-800">{stats.occupiedSeats}</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 text-slate-700">
-            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-            <span>Maintenance:</span>
-            <span className="font-bold font-mono text-sm">{stats.maintenanceSeats}</span>
-          </div>
+      {/* Visual Live Availability Stats Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+            Total Capacity
+          </span>
+          <span className="text-2xl font-bold text-slate-900 mt-1 block font-mono">
+            {stats.totalSeats}
+          </span>
+          <span className="text-[11px] text-slate-500">Across study floors</span>
         </div>
 
-        {/* Legend Guide */}
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-            <span>Green = Available</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-rose-500"></span>
-            <span>Red = Occupied</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-slate-400"></span>
-            <span>Gray = Maintenance</span>
-          </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider block">
+            Available Desks
+          </span>
+          <span className="text-2xl font-bold text-emerald-700 mt-1 block font-mono">
+            {stats.availableSeats}
+          </span>
+          <span className="text-[11px] text-emerald-800">Ready to occupy</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider block">
+            Occupied Desks
+          </span>
+          <span className="text-2xl font-bold text-rose-700 mt-1 block font-mono">
+            {stats.occupiedSeats}
+          </span>
+          <span className="text-[11px] text-rose-800">Assigned to members</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider block">
+            Maintenance
+          </span>
+          <span className="text-2xl font-bold text-slate-700 mt-1 block font-mono">
+            {stats.maintenanceSeats}
+          </span>
+          <span className="text-[11px] text-slate-500">Scheduled repairs</span>
         </div>
       </div>
 
@@ -113,44 +111,50 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
       <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           
-          {/* Floor & Section Buttons (Segmented Controls) */}
+          {/* Floor & Status Segmented Controls */}
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             {/* Floor Filter */}
             <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs font-medium">
-              <span className="px-2 text-slate-500 text-[11px] font-semibold uppercase">Floor:</span>
-              {(['all', '1', '2'] as const).map((floor) => (
+              <span className="px-2 text-slate-500 text-[11px] font-semibold uppercase flex items-center gap-1">
+                <Building2 className="w-3 h-3 text-slate-400" />
+                <span>Floor:</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedFloor('all')}
+                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                  selectedFloor === 'all'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All Floors
+              </button>
+              {floors.map((fl) => (
                 <button
-                  key={floor}
+                  key={fl.id}
                   type="button"
-                  onClick={() => setSelectedFloor(floor)}
+                  onClick={() => setSelectedFloor(fl.id)}
                   className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                    selectedFloor === floor
+                    selectedFloor === fl.id
                       ? 'bg-white text-slate-900 shadow-xs font-semibold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {floor === 'all' ? 'All Floors' : `Floor ${floor}`}
+                  {fl.name}
                 </button>
               ))}
-            </div>
-
-            {/* Section Filter */}
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs font-medium">
-              <span className="px-2 text-slate-500 text-[11px] font-semibold uppercase">Section:</span>
-              {(['all', 'A', 'B', 'C', 'D'] as const).map((sec) => (
-                <button
-                  key={sec}
-                  type="button"
-                  onClick={() => setSelectedSection(sec)}
-                  className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                    selectedSection === sec
-                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {sec === 'all' ? 'All' : `Sec ${sec}`}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setSelectedFloor('unassigned')}
+                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                  selectedFloor === 'unassigned'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                No Floor
+              </button>
             </div>
 
             {/* Availability Filter */}
@@ -160,32 +164,32 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                   key={st}
                   type="button"
                   onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 rounded-md capitalize transition-colors cursor-pointer ${
+                  className={`px-3 py-1 rounded-md transition-colors capitalize cursor-pointer ${
                     statusFilter === st
-                      ? 'bg-white text-emerald-800 shadow-xs font-semibold'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {st}
+                  {st === 'all' ? 'All Desks' : st}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Quick Search Input */}
+          {/* Quick Search */}
           <div className="relative w-full md:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Search seat e.g. A04..."
+              placeholder="Search desk number e.g. A01..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+              className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2 text-xs text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
               >
                 ✕
               </button>
@@ -199,15 +203,14 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
         <div className="bg-white rounded-xl p-12 text-center border border-slate-200 space-y-3">
           <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
           <h4 className="text-base font-semibold text-slate-800">No seats matched your filter</h4>
-          <p className="text-xs text-slate-500">Try adjusting the floor, section, or search term.</p>
+          <p className="text-xs text-slate-500">Try adjusting the floor or search term.</p>
           <button
             onClick={() => {
               setSelectedFloor('all');
-              setSelectedSection('all');
               setStatusFilter('all');
               setSearchQuery('');
             }}
-            className="text-xs font-medium text-emerald-700 hover:underline pt-2 inline-flex items-center gap-1"
+            className="text-xs font-medium text-emerald-700 hover:underline pt-2 inline-flex items-center gap-1 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Reset all filters
           </button>

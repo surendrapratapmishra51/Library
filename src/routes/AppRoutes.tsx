@@ -16,6 +16,7 @@ import { AdminLayout } from '../pages/admin/AdminLayout';
 import { AdminDashboard } from '../pages/admin/Dashboard/AdminDashboard';
 import { ManageUsers } from '../pages/admin/ManageUsers/ManageUsers';
 import { ManageSeatsPlans } from '../pages/admin/ManageSeatsPlans/ManageSeatsPlans';
+import { ManageFloors } from '../pages/admin/ManageFloors/ManageFloors';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -37,6 +38,7 @@ export const AppRoutes: React.FC = () => {
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="users" element={<ManageUsers />} />
+        <Route path="floors" element={<ManageFloors />} />
         <Route path="seats-plans" element={<ManageSeatsPlans />} />
       </Route>
 

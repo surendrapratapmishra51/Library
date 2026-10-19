@@ -12,6 +12,7 @@ export const AdminLayout: React.FC = () => {
   // Section title based on route
   const getSectionTitle = () => {
     if (location.pathname.includes('/users')) return 'Manage Users';
+    if (location.pathname.includes('/floors')) return 'Manage Floors';
     if (location.pathname.includes('/seats-plans')) return 'Manage Seats & Plans';
     return 'Admin Dashboard';
   };

@@ -19,12 +19,12 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ isOpen, user
         <div className="flex items-start justify-between pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xl font-display shadow-sm">
-              {user.name.charAt(0)}
+              {(user.name || 'U').charAt(0)}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold text-slate-900 font-display">
-                  {user.name}
+                  {user.name || 'Member'}
                 </h3>
                 <span
                   className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
