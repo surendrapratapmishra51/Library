@@ -4,6 +4,7 @@ import { mockSeats } from '../data/mockSeats';
 import { mockDefaultStudent } from '../data/mockStudents';
 import { mockInitialUsers } from '../data/mockUsers';
 import { mockPlans } from '../data/mockPlans';
+import { userApi, seatApi, planApi, activityApi, authApi } from '../services';
 
 interface LibraryContextType {
   seats: Seat[];
@@ -135,32 +136,28 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [selectedSeatForBooking, setSelectedSeatForBooking] = useState<Seat | null>(null);
 
-  // Fetch from MySQL Backend on mount
+  // Fetch from MySQL Backend on mount using centralized services
   useEffect(() => {
     const fetchBackendData = async () => {
       try {
-        const [seatsRes, usersRes, plansRes, actRes] = await Promise.all([
-          fetch('/api/seats'),
-          fetch('/api/users'),
-          fetch('/api/plans'),
-          fetch('/api/activities'),
+        const [seatsResult, usersResult, plansResult, actResult] = await Promise.allSettled([
+          seatApi.getSeats(),
+          userApi.getUsers(),
+          planApi.getPlans(),
+          activityApi.getActivities(),
         ]);
 
-        if (seatsRes.ok) {
-          const seatsData = await seatsRes.json();
-          if (Array.isArray(seatsData)) setSeats(seatsData);
+        if (seatsResult.status === 'fulfilled' && Array.isArray(seatsResult.value)) {
+          setSeats(seatsResult.value);
         }
-        if (usersRes.ok) {
-          const usersData = await usersRes.json();
-          if (Array.isArray(usersData)) setUsers(usersData);
+        if (usersResult.status === 'fulfilled' && Array.isArray(usersResult.value)) {
+          setUsers(usersResult.value);
         }
-        if (plansRes.ok) {
-          const plansData = await plansRes.json();
-          if (Array.isArray(plansData) && plansData.length > 0) setPlans(plansData);
+        if (plansResult.status === 'fulfilled' && Array.isArray(plansResult.value) && plansResult.value.length > 0) {
+          setPlans(plansResult.value);
         }
-        if (actRes.ok) {
-          const actData = await actRes.json();
-          if (Array.isArray(actData)) setActivities(actData);
+        if (actResult.status === 'fulfilled' && Array.isArray(actResult.value)) {
+          setActivities(actResult.value);
         }
       } catch (err) {
         console.info('Backend API running in local fallback mode.');
@@ -217,11 +214,9 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const logout = () => {
+    authApi.logout();
     setIsAuthenticated(false);
     setUserRole('guest');
-    localStorage.removeItem('fz_library_auth');
-    localStorage.removeItem('fz_library_role');
-    localStorage.removeItem('fz_library_token');
   };
 
   const registerApplication = async (formData: RegistrationFormData): Promise<{ success: boolean; message: string }> => {
@@ -316,6 +311,12 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return s;
       })
     );
+
+    // Sync to backend via seatApi
+    seatApi.updateSeat(seatId, {
+      status,
+      occupiedBy: status === 'occupied' ? occupant || 'Enrolled Student' : null,
+    }).catch((err) => console.info('[seatApi.updateSeat]', err.message));
   };
 
   // Admin Add User
@@ -334,6 +335,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newId = `usr-${Date.now()}`;
     const newUser: AdminUser = {
       ...userData,
+      status: 'Active',
       id: newId,
       history: [
         `Created by Admin on ${new Date().toLocaleDateString('en-GB')}` +
@@ -365,6 +367,22 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       },
       ...prev
     ]);
+
+    // Sync to backend via userApi
+    userApi.createUser({
+      name: userData.name,
+      mobile: userData.mobile,
+      email: userData.email,
+      password: userData.password,
+      address: userData.address,
+      plan: userData.plan,
+      planId: userData.planId,
+      seat: userData.seat,
+      joiningDate: userData.joiningDate,
+      expiryDate: userData.expiryDate,
+      status: 'Active',
+      role: userData.role || 'student',
+    }).catch((err) => console.info('[userApi.createUser]', err.message));
 
     return { success: true, message: `Member ${userData.name} added successfully.` };
   };
@@ -435,6 +453,20 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       prev.map((u) => (u.id === userId ? { ...u, ...updatedData, history: updatedHistory } : u))
     );
 
+    // Sync to backend via userApi
+    userApi.updateUser(userId, {
+      name: updatedData.name,
+      mobile: updatedData.mobile,
+      email: updatedData.email,
+      password: updatedData.password,
+      address: updatedData.address,
+      plan: updatedData.plan,
+      planId: updatedData.planId,
+      seat: updatedData.seat,
+      expiryDate: updatedData.expiryDate,
+      status: updatedData.status,
+    }).catch((err) => console.info('[userApi.updateUser]', err.message));
+
     return { success: true, message: 'Member details updated successfully.' };
   };
 
@@ -491,6 +523,9 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       },
       ...prev
     ]);
+
+    // Sync to backend via userApi
+    userApi.discontinueUser(userId).catch((err) => console.info('[userApi.discontinueUser]', err.message));
 
     return {
       success: true,
@@ -571,6 +606,9 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ...prev
     ]);
 
+    // Sync to backend via userApi
+    userApi.changeUserSeat(userId, cleanNewSeat).catch((err) => console.info('[userApi.changeUserSeat]', err.message));
+
     return {
       success: true,
       message: `Seat successfully changed from ${oldSeatNumber} to ${cleanNewSeat} for ${targetUser.name}.`
@@ -605,6 +643,15 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setSeats((prev) => [...prev, newSeatObj]);
+
+    // Sync to backend via seatApi
+    seatApi.addSeat({
+      number: cleanNumber,
+      floor: seatData.floor,
+      section: seatData.section,
+      status: seatData.status,
+    }).catch((err) => console.info('[seatApi.addSeat]', err.message));
+
     return { success: true, message: `Seat ${cleanNumber} added successfully to Floor ${seatData.floor}, Section ${seatData.section}.` };
   };
 
@@ -624,6 +671,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     setSeats((prev) => prev.filter((s) => s.number.toUpperCase() !== seatNumber.toUpperCase()));
+
+    // Sync to backend via seatApi
+    seatApi.deleteSeat(seatNumber).catch((err) => console.info('[seatApi.deleteSeat]', err.message));
+
     return { success: true, message: `Seat ${seatNumber} has been removed from library layout.` };
   };
 
@@ -637,6 +688,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setPlans((prev) => [...prev, newPlan]);
+
+    // Sync to backend via planApi
+    planApi.addPlan(planData).catch((err) => console.info('[planApi.addPlan]', err.message));
+
     return { success: true, message: `Plan "${planData.name}" created successfully.` };
   };
 
@@ -645,6 +700,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPlans((prev) =>
       prev.map((p) => (p.id === planId ? { ...p, ...planData } : p))
     );
+
+    // Sync to backend via planApi
+    planApi.updatePlan(planId, planData).catch((err) => console.info('[planApi.updatePlan]', err.message));
+
     return { success: true, message: 'Plan details updated successfully.' };
   };
 
@@ -660,6 +719,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return p;
       })
     );
+
+    // Sync to backend via planApi
+    planApi.updatePlan(planId, { status: nextStatus }).catch((err) => console.info('[planApi.updatePlan]', err.message));
+
     return { success: true, message: `Plan status set to ${nextStatus}.` };
   };
 

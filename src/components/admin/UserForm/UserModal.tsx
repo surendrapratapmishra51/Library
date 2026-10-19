@@ -111,7 +111,10 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
         return;
       }
     } else {
-      const result = addUser(formData);
+      const result = addUser({
+        ...formData,
+        status: 'Active'
+      });
       setIsSubmitting(false);
       if (!result.success) {
         setErrorMsg(result.message);
@@ -315,21 +318,23 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
             </div>
           </div>
 
-          {/* Status */}
-          <div>
-            <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-              Membership Status
-            </label>
-            <select
-              name="status"
-              value={formData.status}
-              onChange={handleChange}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-medium"
-            >
-              <option value="Active">Active (Occupying Assigned Seat)</option>
-              <option value="Discontinued">Discontinued (Seat Released)</option>
-            </select>
-          </div>
+          {/* Membership Status - Only shown when editing an existing member */}
+          {userToEdit && (
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                Membership Status
+              </label>
+              <select
+                name="status"
+                value={formData.status}
+                onChange={handleChange}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-medium"
+              >
+                <option value="Active">Active (Occupying Assigned Seat)</option>
+                <option value="Discontinued">Discontinued (Seat Released)</option>
+              </select>
+            </div>
+          )}
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <button

@@ -4,6 +4,8 @@ import { useLibrary } from '../../context/LibraryContext';
 import { Button } from '../common/Button';
 import { LogIn, Key, Mail, ShieldAlert } from 'lucide-react';
 
+import { authApi } from '../../services';
+
 interface LoginFormProps {
   defaultRole?: 'student' | 'admin';
 }
@@ -34,17 +36,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'admin' }) =
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: identifier.trim(), password: password.trim() })
+      const data = await authApi.login({
+        identifier: identifier.trim(),
+        password: password.trim(),
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed. Please check credentials.');
-      }
 
       // Check role match
       const userRole = data.user.role || 'student';
