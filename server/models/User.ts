@@ -18,6 +18,13 @@ export interface UserAttributes {
   previous_seat?: string | null;
   discontinued_date?: string | null;
   history?: any;
+  base_fee?: number | null;
+  discount?: number | null;
+  discount_reason?: string | null;
+  final_fee?: number | null;
+  paid_amount?: number | null;
+  balance_due?: number | null;
+  payment_status?: 'Paid' | 'Partial' | 'Pending';
   created_at?: Date;
   updated_at?: Date;
 }
@@ -41,6 +48,13 @@ class User extends Model<UserAttributes, UserCreationAttributes> implements User
   public previous_seat!: string | null;
   public discontinued_date!: string | null;
   public history!: any;
+  public base_fee!: number | null;
+  public discount!: number | null;
+  public discount_reason!: string | null;
+  public final_fee!: number | null;
+  public paid_amount!: number | null;
+  public balance_due!: number | null;
+  public payment_status!: 'Paid' | 'Partial' | 'Pending';
 
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
@@ -119,6 +133,40 @@ User.init(
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: [],
+    },
+    base_fee: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    discount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    discount_reason: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    final_fee: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    paid_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    balance_due: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    payment_status: {
+      type: DataTypes.ENUM('Paid', 'Partial', 'Pending'),
+      allowNull: false,
+      defaultValue: 'Pending',
     },
   },
   {

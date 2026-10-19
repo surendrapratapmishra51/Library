@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, User, Phone, Mail, MapPin, Calendar, Armchair, Clock, History } from 'lucide-react';
+import { X, User, Phone, Mail, MapPin, Calendar, Armchair, Clock, History, Receipt } from 'lucide-react';
 import { AdminUser } from '../../../types';
 
 interface UserDetailsModalProps {
@@ -97,6 +97,52 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ isOpen, user
               <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
               <span>Enrolled on {user.joiningDate}</span>
             </div>
+          </div>
+
+          {/* Fee & Payment Card */}
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                <Receipt className="w-3.5 h-3.5 text-emerald-700" />
+                Fee & Payment Status
+              </span>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                user.paymentStatus === 'Paid'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : user.paymentStatus === 'Partial'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-rose-100 text-rose-800'
+              }`}>
+                {user.paymentStatus === 'Paid' ? 'Paid in Full' : user.paymentStatus === 'Partial' ? 'Partial Payment' : 'Payment Pending'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 pt-1 text-center">
+              <div className="p-2 bg-white rounded-lg border border-slate-100">
+                <span className="text-[10px] text-slate-400 block">Plan Fee</span>
+                <span className="font-mono font-bold text-slate-800">₹{user.baseFee ?? 0}</span>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-100">
+                <span className="text-[10px] text-slate-400 block">Discount</span>
+                <span className="font-mono font-bold text-emerald-700">₹{user.discount ?? 0}</span>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-100">
+                <span className="text-[10px] text-slate-400 block">Paid</span>
+                <span className="font-mono font-bold text-slate-800">₹{user.paidAmount ?? 0}</span>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-100">
+                <span className="text-[10px] text-slate-400 block">Balance Due</span>
+                <span className={`font-mono font-bold ${(user.balanceDue || 0) > 0 ? 'text-amber-700' : 'text-slate-800'}`}>
+                  ₹{user.balanceDue ?? 0}
+                </span>
+              </div>
+            </div>
+
+            {user.discount && user.discount > 0 && user.discountReason && (
+              <p className="text-[10px] text-slate-500 italic">
+                Discount note: {user.discountReason}
+              </p>
+            )}
           </div>
 
           {/* History / Audit trail */}

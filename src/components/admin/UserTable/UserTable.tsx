@@ -63,9 +63,9 @@ export const UserTable: React.FC = () => {
     });
   }, [users, searchQuery, statusFilter, planFilter]);
 
-  const handleConfirmDiscontinue = () => {
+  const handleConfirmDiscontinue = async () => {
     if (discontinueTarget) {
-      discontinueUser(discontinueTarget.id);
+      await discontinueUser(discontinueTarget.id);
       setDiscontinueTarget(null);
     }
   };
@@ -190,6 +190,7 @@ export const UserTable: React.FC = () => {
                 <th className="p-4 font-semibold">Seat</th>
                 <th className="p-4 font-semibold">Joining Date</th>
                 <th className="p-4 font-semibold">Expiry Date</th>
+                <th className="p-4 font-semibold">Fee / Due</th>
                 <th className="p-4 font-semibold">Status</th>
                 <th className="p-4 font-semibold text-right">Actions</th>
               </tr>
@@ -197,7 +198,7 @@ export const UserTable: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-400">
+                  <td colSpan={9} className="p-12 text-center text-slate-400">
                     <p className="text-sm font-semibold text-slate-600">No members match your criteria</p>
                     <p className="text-xs mt-1">Try resetting the search bar or filters.</p>
                   </td>
@@ -226,6 +227,22 @@ export const UserTable: React.FC = () => {
                     </td>
                     <td className="p-4 font-mono">{user.joiningDate}</td>
                     <td className="p-4 font-mono">{user.expiryDate}</td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-semibold text-slate-900 font-mono">
+                          ₹{user.finalFee ?? user.baseFee ?? 0}
+                        </span>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-block w-fit ${
+                          user.paymentStatus === 'Paid'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : user.paymentStatus === 'Partial'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {user.paymentStatus === 'Paid' ? 'Paid' : user.paymentStatus === 'Partial' ? `Due ₹${user.balanceDue}` : 'Pending'}
+                        </span>
+                      </div>
+                    </td>
                     <td className="p-4">
                       <span
                         className={`px-2.5 py-0.5 rounded-full font-semibold text-[11px] ${

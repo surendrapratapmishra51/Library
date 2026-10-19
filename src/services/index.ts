@@ -8,3 +8,4 @@ export * from './userApi';
 export * from './seatApi';
 export * from './planApi';
 export * from './activityApi';
+export * from './paymentApi';

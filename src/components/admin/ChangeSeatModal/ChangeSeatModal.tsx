@@ -21,7 +21,7 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
   // Filter only seats that are currently available
   const availableSeats = seats.filter((s) => s.status === 'available');
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setErrorMsg(null);
     if (!selectedSeat) {
       setErrorMsg('Please select a new available seat from the list.');
@@ -29,15 +29,18 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
     }
 
     setIsLoading(true);
-    const res = changeUserSeat(user.id, selectedSeat);
-    setIsLoading(false);
-
-    if (!res.success) {
-      setErrorMsg(res.message);
-      return;
+    try {
+      const res = await changeUserSeat(user.id, selectedSeat);
+      if (!res.success) {
+        setErrorMsg(res.message);
+        return;
+      }
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to change seat.');
+    } finally {
+      setIsLoading(false);
     }
-
-    onClose();
   };
 
   return (

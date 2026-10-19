@@ -5,6 +5,7 @@ import { mockDefaultStudent } from '../data/mockStudents';
 import { mockInitialUsers } from '../data/mockUsers';
 import { mockPlans } from '../data/mockPlans';
 import { userApi, seatApi, planApi, activityApi, authApi } from '../services';
+import { calculateExpiryDate, getTodayDateString } from '../utils/dateUtils';
 
 interface LibraryContextType {
   seats: Seat[];
@@ -22,10 +23,10 @@ interface LibraryContextType {
   updateSeatStatus: (seatId: string, status: 'available' | 'occupied' | 'maintenance', occupant?: string) => void;
   
   // Admin Operations
-  addUser: (userData: Omit<AdminUser, 'id' | 'history'>) => { success: boolean; message: string };
-  editUser: (userId: string, userData: Partial<AdminUser>) => { success: boolean; message: string };
-  discontinueUser: (userId: string) => { success: boolean; message: string };
-  changeUserSeat: (userId: string, newSeatNumber: string) => { success: boolean; message: string };
+  addUser: (userData: Omit<AdminUser, 'id' | 'history'>) => Promise<{ success: boolean; message: string; user?: AdminUser }>;
+  editUser: (userId: string, userData: Partial<AdminUser>) => Promise<{ success: boolean; message: string }>;
+  discontinueUser: (userId: string) => Promise<{ success: boolean; message: string }>;
+  changeUserSeat: (userId: string, newSeatNumber: string) => Promise<{ success: boolean; message: string }>;
   addSeat: (seatData: { number: string; floor: 1 | 2; section: 'A' | 'B' | 'C' | 'D'; status: SeatStatus }) => { success: boolean; message: string };
   removeSeat: (seatNumber: string) => { success: boolean; message: string };
   addPlan: (planData: Omit<MembershipPlan, 'id'>) => { success: boolean; message: string };
@@ -250,6 +251,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
 
+    const chosenPlan = plans.find((p) => p.id === formData.planId);
+    const startDate = formData.startDate || getTodayDateString();
+    const expiryDate = calculateExpiryDate(startDate, chosenPlan);
+
     // Create user record in Admin Users list
     const newUser: AdminUser = {
       id: `usr-${Date.now()}`,
@@ -257,16 +262,31 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       mobile: formData.mobile,
       email: formData.email,
       address: formData.address,
-      plan: plans.find((p) => p.id === formData.planId)?.name || 'Custom Plan',
+      plan: chosenPlan?.name || 'Custom Plan',
       planId: formData.planId,
       seat: selectedSeatNo,
-      joiningDate: formData.startDate || new Date().toISOString().split('T')[0],
-      expiryDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      joiningDate: startDate,
+      expiryDate,
       status: 'Active',
-      history: [`Joined on ${formData.startDate || 'today'} with reserved Seat ${selectedSeatNo}`]
+      history: [`Joined on ${startDate} with reserved Seat ${selectedSeatNo}`]
     };
 
     setUsers((prev) => [newUser, ...prev]);
+
+    // Persist to backend database via userApi
+    userApi.createUser({
+      name: formData.fullName,
+      mobile: formData.mobile,
+      email: formData.email,
+      address: formData.address,
+      plan: chosenPlan?.name || 'Custom Plan',
+      planId: formData.planId,
+      seat: selectedSeatNo,
+      joiningDate: startDate,
+      expiryDate,
+      status: 'Active',
+      role: 'student',
+    }).catch((err) => console.info('[userApi.createUser registration]', err.message));
 
     // Log Activity
     const newActivity: ActivityItem = {
@@ -319,300 +339,176 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }).catch((err) => console.info('[seatApi.updateSeat]', err.message));
   };
 
-  // Admin Add User
-  const addUser = (userData: Omit<AdminUser, 'id' | 'history'>): { success: boolean; message: string } => {
-    // Business rule: Seat must be available if assigned
-    if (userData.seat && userData.seat !== 'None' && userData.status === 'Active') {
-      const targetSeat = seats.find((s) => s.number.toUpperCase() === userData.seat.toUpperCase());
+  // Admin Add User (Persists directly to database via userApi, then updates cache & UI)
+  const addUser = async (userData: Omit<AdminUser, 'id' | 'history'>): Promise<{ success: boolean; message: string; user?: AdminUser }> => {
+    // 1. Client-side validation: Seat must be available if assigned
+    const selectedSeatNo = userData.seat && userData.seat !== 'None' ? userData.seat.trim().toUpperCase() : 'None';
+    if (selectedSeatNo !== 'None' && userData.status === 'Active') {
+      const targetSeat = seats.find((s) => s.number.toUpperCase() === selectedSeatNo);
       if (!targetSeat) {
-        return { success: false, message: `Seat ${userData.seat} does not exist in library.` };
+        return { success: false, message: `Seat ${userData.seat} does not exist in library layout.` };
       }
       if (targetSeat.status !== 'available') {
         return { success: false, message: `Seat ${userData.seat} is already ${targetSeat.status} (occupied by ${targetSeat.occupiedBy || 'another student'}).` };
       }
     }
 
-    const newId = `usr-${Date.now()}`;
-    const newUser: AdminUser = {
-      ...userData,
-      status: 'Active',
-      id: newId,
-      history: [
-        `Created by Admin on ${new Date().toLocaleDateString('en-GB')}` +
-          (userData.seat && userData.seat !== 'None' ? ` (Assigned Seat ${userData.seat})` : '')
-      ]
-    };
+    try {
+      // 2. Make actual POST API call to persist user in backend database
+      const response = await userApi.createUser({
+        name: userData.name.trim(),
+        mobile: userData.mobile.trim(),
+        email: userData.email && userData.email.trim() ? userData.email.trim() : undefined,
+        password: userData.password && userData.password.trim() ? userData.password.trim() : undefined,
+        address: userData.address ? userData.address.trim() : '',
+        plan: userData.plan,
+        planId: userData.planId,
+        seat: selectedSeatNo,
+        joiningDate: userData.joiningDate,
+        expiryDate: userData.expiryDate,
+        status: 'Active',
+        role: userData.role || 'student',
+        baseFee: userData.baseFee,
+        discount: userData.discount,
+        discountReason: userData.discountReason,
+        finalFee: userData.finalFee,
+        paidAmount: userData.paidAmount,
+        balanceDue: userData.balanceDue,
+        paymentMethod: (userData as any).paymentMethod,
+      });
 
-    // If seat was assigned, mark seat as occupied
-    if (userData.seat && userData.seat !== 'None' && userData.status === 'Active') {
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === userData.seat.toUpperCase()
-            ? { ...s, status: 'occupied', occupiedBy: userData.name }
-            : s
-        )
-      );
+      if (!response.success || !response.user) {
+        return { success: false, message: response.message || 'Failed to create user in database.' };
+      }
+
+      // 3. Immediately refresh users, seats, and activities directly from the database to guarantee persistence and consistency
+      try {
+        const [updatedUsers, updatedSeats, updatedActivities] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+          activityApi.getActivities(),
+        ]);
+
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+        if (Array.isArray(updatedActivities)) setActivities(updatedActivities);
+      } catch {
+        // Fallback: If immediate re-fetch fails, append the created user returned by server
+        setUsers((prev) => [response.user, ...prev.filter((u) => u.id !== response.user.id)]);
+      }
+
+      return {
+        success: true,
+        message: response.message || `Member ${userData.name} enrolled and saved to database successfully.`,
+        user: response.user,
+      };
+    } catch (err: any) {
+      console.error('[LibraryContext.addUser] Database user creation failed:', err);
+      const errorMessage =
+        err?.data?.error ||
+        err?.message ||
+        'Failed to save member to database. Please check database connection and try again.';
+      return { success: false, message: errorMessage };
     }
-
-    setUsers((prev) => [newUser, ...prev]);
-
-    setActivities((prev) => [
-      {
-        id: `act-${Date.now()}`,
-        type: 'member_added',
-        title: 'New Member Added',
-        timestamp: 'Just now',
-        details: `${userData.name} added by Admin · Seat ${userData.seat || 'Unassigned'}`,
-        meta: { userName: userData.name, seatNumber: userData.seat }
-      },
-      ...prev
-    ]);
-
-    // Sync to backend via userApi
-    userApi.createUser({
-      name: userData.name,
-      mobile: userData.mobile,
-      email: userData.email,
-      password: userData.password,
-      address: userData.address,
-      plan: userData.plan,
-      planId: userData.planId,
-      seat: userData.seat,
-      joiningDate: userData.joiningDate,
-      expiryDate: userData.expiryDate,
-      status: 'Active',
-      role: userData.role || 'student',
-    }).catch((err) => console.info('[userApi.createUser]', err.message));
-
-    return { success: true, message: `Member ${userData.name} added successfully.` };
   };
 
   // Admin Edit User
-  const editUser = (userId: string, updatedData: Partial<AdminUser>): { success: boolean; message: string } => {
-    const existingUser = users.find((u) => u.id === userId);
-    if (!existingUser) {
-      return { success: false, message: 'User not found.' };
-    }
+  const editUser = async (userId: string, updatedData: Partial<AdminUser>): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await userApi.updateUser(userId, {
+        name: updatedData.name,
+        mobile: updatedData.mobile,
+        email: updatedData.email,
+        password: updatedData.password,
+        address: updatedData.address,
+        plan: updatedData.plan,
+        planId: updatedData.planId,
+        seat: updatedData.seat,
+        joiningDate: updatedData.joiningDate,
+        expiryDate: updatedData.expiryDate,
+        status: updatedData.status,
+        baseFee: updatedData.baseFee,
+        discount: updatedData.discount,
+        discountReason: updatedData.discountReason,
+        finalFee: updatedData.finalFee,
+        paidAmount: updatedData.paidAmount,
+        balanceDue: updatedData.balanceDue,
+      });
 
-    // Check if seat changed
-    const oldSeat = existingUser.seat;
-    const newSeat = updatedData.seat;
-
-    if (newSeat && newSeat !== oldSeat && newSeat !== 'None' && updatedData.status !== 'Discontinued') {
-      const seatObj = seats.find((s) => s.number.toUpperCase() === newSeat.toUpperCase());
-      if (seatObj && seatObj.status !== 'available') {
-        return {
-          success: false,
-          message: `Cannot assign seat ${newSeat}. It is already ${seatObj.status}.`
-        };
+      if (!res.success) {
+        return { success: false, message: res.message || 'Failed to update member in database.' };
       }
 
-      // Free old seat if valid
-      if (oldSeat && oldSeat !== 'None') {
-        setSeats((prev) =>
-          prev.map((s) =>
-            s.number.toUpperCase() === oldSeat.toUpperCase()
-              ? { ...s, status: 'available', occupiedBy: undefined }
-              : s
-          )
-        );
-      }
+      // Refresh fresh records from DB
+      try {
+        const [updatedUsers, updatedSeats] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+        ]);
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+      } catch {}
 
-      // Claim new seat
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === newSeat.toUpperCase()
-            ? { ...s, status: 'occupied', occupiedBy: updatedData.name || existingUser.name }
-            : s
-        )
-      );
+      return { success: true, message: 'Member details updated successfully in database.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.editUser]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to update member.' };
     }
-
-    // If updated to Discontinued
-    if (updatedData.status === 'Discontinued' && existingUser.status === 'Active') {
-      if (oldSeat && oldSeat !== 'None') {
-        setSeats((prev) =>
-          prev.map((s) =>
-            s.number.toUpperCase() === oldSeat.toUpperCase()
-              ? { ...s, status: 'available', occupiedBy: undefined }
-              : s
-          )
-        );
-      }
-      updatedData.previousSeat = oldSeat;
-      updatedData.seat = 'None';
-      updatedData.discontinuedDate = new Date().toISOString().split('T')[0];
-    }
-
-    const updatedHistory = [
-      ...(existingUser.history || []),
-      `Profile modified by Admin on ${new Date().toLocaleDateString('en-GB')}`
-    ];
-
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, ...updatedData, history: updatedHistory } : u))
-    );
-
-    // Sync to backend via userApi
-    userApi.updateUser(userId, {
-      name: updatedData.name,
-      mobile: updatedData.mobile,
-      email: updatedData.email,
-      password: updatedData.password,
-      address: updatedData.address,
-      plan: updatedData.plan,
-      planId: updatedData.planId,
-      seat: updatedData.seat,
-      expiryDate: updatedData.expiryDate,
-      status: updatedData.status,
-    }).catch((err) => console.info('[userApi.updateUser]', err.message));
-
-    return { success: true, message: 'Member details updated successfully.' };
   };
 
   // Discontinue User (Business Rule #2, #6)
-  const discontinueUser = (userId: string): { success: boolean; message: string } => {
-    const targetUser = users.find((u) => u.id === userId);
-    if (!targetUser) {
-      return { success: false, message: 'Member not found.' };
+  const discontinueUser = async (userId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await userApi.discontinueUser(userId);
+      if (!res.success) {
+        return { success: false, message: res.message || 'Failed to discontinue member.' };
+      }
+
+      // Refresh fresh records from DB
+      try {
+        const [updatedUsers, updatedSeats, updatedActivities] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+          activityApi.getActivities(),
+        ]);
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+        if (Array.isArray(updatedActivities)) setActivities(updatedActivities);
+      } catch {}
+
+      return { success: true, message: 'Member discontinued and seat released successfully.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.discontinueUser]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to discontinue member.' };
     }
-
-    const releasedSeat = targetUser.seat;
-
-    // Release assigned seat
-    if (releasedSeat && releasedSeat !== 'None') {
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === releasedSeat.toUpperCase()
-            ? { ...s, status: 'available', occupiedBy: undefined }
-            : s
-        )
-      );
-    }
-
-    const todayDate = new Date().toLocaleDateString('en-GB');
-
-    // Update user status
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              status: 'Discontinued',
-              previousSeat: releasedSeat,
-              seat: 'None',
-              discontinuedDate: new Date().toISOString().split('T')[0],
-              history: [
-                ...(u.history || []),
-                `Discontinued membership on ${todayDate}. Seat ${releasedSeat !== 'None' ? releasedSeat : 'N/A'} released to Available pool.`
-              ]
-            }
-          : u
-      )
-    );
-
-    // Record activity
-    setActivities((prev) => [
-      {
-        id: `act-${Date.now()}`,
-        type: 'member_discontinued',
-        title: 'Member Discontinued',
-        timestamp: 'Just now',
-        details: `${targetUser.name} discontinued. Seat ${releasedSeat !== 'None' ? releasedSeat : 'N/A'} released.`,
-        meta: { userName: targetUser.name, seatNumber: releasedSeat }
-      },
-      ...prev
-    ]);
-
-    // Sync to backend via userApi
-    userApi.discontinueUser(userId).catch((err) => console.info('[userApi.discontinueUser]', err.message));
-
-    return {
-      success: true,
-      message: `Member ${targetUser.name} discontinued. Seat ${releasedSeat !== 'None' ? releasedSeat : ''} is now available.`
-    };
   };
 
   // Change Student Seat (Business Rule #3)
-  const changeUserSeat = (userId: string, newSeatNumber: string): { success: boolean; message: string } => {
-    const targetUser = users.find((u) => u.id === userId);
-    if (!targetUser) {
-      return { success: false, message: 'Member not found.' };
+  const changeUserSeat = async (userId: string, newSeatNumber: string): Promise<{ success: boolean; message: string }> => {
+    const cleanNewSeat = newSeatNumber.trim().toUpperCase();
+    try {
+      const res = await userApi.changeUserSeat(userId, cleanNewSeat);
+      if (!res.success) {
+        return { success: false, message: res.message || 'Failed to change seat in database.' };
+      }
+
+      // Refresh fresh records from DB
+      try {
+        const [updatedUsers, updatedSeats, updatedActivities] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+          activityApi.getActivities(),
+        ]);
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+        if (Array.isArray(updatedActivities)) setActivities(updatedActivities);
+      } catch {}
+
+      return { success: true, message: `Seat successfully changed to ${cleanNewSeat}.` };
+    } catch (err: any) {
+      console.error('[LibraryContext.changeUserSeat]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to change seat.' };
     }
-
-    const cleanNewSeat = newSeatNumber.toUpperCase();
-    const newSeatObj = seats.find((s) => s.number.toUpperCase() === cleanNewSeat);
-    if (!newSeatObj) {
-      return { success: false, message: `Seat ${cleanNewSeat} does not exist.` };
-    }
-
-    if (newSeatObj.status !== 'available') {
-      return {
-        success: false,
-        message: `Seat ${cleanNewSeat} cannot be assigned because it is ${newSeatObj.status}.`
-      };
-    }
-
-    const oldSeatNumber = targetUser.seat;
-
-    // Release old seat
-    if (oldSeatNumber && oldSeatNumber !== 'None') {
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === oldSeatNumber.toUpperCase()
-            ? { ...s, status: 'available', occupiedBy: undefined }
-            : s
-        )
-      );
-    }
-
-    // Occupy new seat
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.number.toUpperCase() === cleanNewSeat
-          ? { ...s, status: 'occupied', occupiedBy: targetUser.name }
-          : s
-      )
-    );
-
-    const todayDate = new Date().toLocaleDateString('en-GB');
-
-    // Update user record
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              seat: cleanNewSeat,
-              history: [
-                ...(u.history || []),
-                `Seat changed from ${oldSeatNumber !== 'None' ? oldSeatNumber : 'Unassigned'} to ${cleanNewSeat} on ${todayDate}`
-              ]
-            }
-          : u
-      )
-    );
-
-    // Record activity
-    setActivities((prev) => [
-      {
-        id: `act-${Date.now()}`,
-        type: 'seat_changed',
-        title: 'Seat Reassigned',
-        timestamp: 'Just now',
-        details: `${targetUser.name} moved from ${oldSeatNumber} to ${cleanNewSeat}`,
-        meta: { userName: targetUser.name, oldSeat: oldSeatNumber, newSeat: cleanNewSeat }
-      },
-      ...prev
-    ]);
-
-    // Sync to backend via userApi
-    userApi.changeUserSeat(userId, cleanNewSeat).catch((err) => console.info('[userApi.changeUserSeat]', err.message));
-
-    return {
-      success: true,
-      message: `Seat successfully changed from ${oldSeatNumber} to ${cleanNewSeat} for ${targetUser.name}.`
-    };
   };
 
   // Add Seat

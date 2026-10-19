@@ -54,6 +54,13 @@ export interface AdminUser {
   password?: string;
   previousSeat?: string;
   discontinuedDate?: string;
+  baseFee?: number;
+  discount?: number;
+  discountReason?: string;
+  finalFee?: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  paymentStatus?: 'Paid' | 'Partial' | 'Pending';
   history?: string[];
 }
 

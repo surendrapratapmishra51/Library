@@ -59,7 +59,7 @@ Activity.init(
     tableName: 'activities',
     underscored: true,
     createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    updatedAt: false,
   }
 );
 

@@ -19,20 +19,19 @@ export interface CreateUserPayload {
   expiryDate?: string;
   status?: 'Active' | 'Discontinued';
   role?: 'student' | 'admin';
+  baseFee?: number;
+  discount?: number;
+  discountReason?: string;
+  finalFee?: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  paymentMethod?: string;
 }
 
 export interface CreateUserResponse {
   success: boolean;
   message: string;
-  user: {
-    id: string;
-    name: string;
-    mobile: string;
-    email: string | null;
-    seat: string;
-    plan: string;
-    role: string;
-  };
+  user: AdminUser;
 }
 
 export interface UpdateUserPayload {
@@ -44,11 +43,21 @@ export interface UpdateUserPayload {
   plan?: string;
   planId?: string;
   seat?: string;
+  joiningDate?: string;
   expiryDate?: string;
   status?: 'Active' | 'Discontinued';
   previous_seat?: string;
   discontinued_date?: string;
   historyLog?: string;
+  baseFee?: number;
+  discount?: number;
+  discountReason?: string;
+  finalFee?: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  additionalPayment?: number;
+  paymentMethod?: string;
+  paymentNotes?: string;
 }
 
 export interface ApiResponse {
