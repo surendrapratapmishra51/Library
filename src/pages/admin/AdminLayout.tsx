@@ -16,6 +16,7 @@ export const AdminLayout: React.FC = () => {
 
   // Section title based on route
   const getSectionTitle = () => {
+    if (location.pathname.includes('/admissions')) return 'Admission Requests';
     if (location.pathname.includes('/fees')) return 'Fees Management';
     if (location.pathname.includes('/users')) return 'Manage Users';
     if (location.pathname.includes('/floors')) return 'Manage Floors';
@@ -63,16 +64,6 @@ export const AdminLayout: React.FC = () => {
               <span className="font-semibold text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
                 {stats.activeMembers} Active Members
               </span>
-            </div>
-
-            <div className="flex items-center gap-2 pl-2 sm:border-l border-slate-200">
-              <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
-                A
-              </div>
-              <div className="hidden md:block text-left text-xs">
-                <span className="font-bold text-slate-900 block leading-tight">Admin User</span>
-                <span className="text-[10px] text-slate-400">Super Administrator</span>
-              </div>
             </div>
           </div>
         </header>

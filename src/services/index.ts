@@ -10,3 +10,4 @@ export * from './planApi';
 export * from './activityApi';
 export * from './paymentApi';
 export * from './floorApi';
+export * from './admissionApi';

@@ -6,6 +6,7 @@ import planRoutes from './planRoutes.js';
 import activityRoutes from './activityRoutes.js';
 import paymentRoutes from './paymentRoutes.js';
 import floorRoutes from './floorRoutes.js';
+import admissionRoutes from './admissionRoutes.js';
 import sequelize from '../config/database.js';
 
 const router = express.Router();
@@ -28,5 +29,6 @@ router.use('/plans', planRoutes);
 router.use('/activities', activityRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/floors', floorRoutes);
+router.use('/admissions', admissionRoutes);
 
 export default router;

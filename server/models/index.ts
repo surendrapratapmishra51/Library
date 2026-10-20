@@ -6,6 +6,7 @@ import Activity from './Activity.js';
 import Payment from './Payment.js';
 import Floor from './Floor.js';
 import SeatAllocation from './SeatAllocation.js';
+import AdmissionRequest from './AdmissionRequest.js';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
 
@@ -18,6 +19,8 @@ Seat.belongsTo(Floor, { foreignKey: 'floor_id', as: 'floor_info' });
 
 User.hasMany(SeatAllocation, { foreignKey: 'user_id', as: 'allocations' });
 SeatAllocation.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+AdmissionRequest.belongsTo(User, { foreignKey: 'created_user_id', as: 'created_user' });
 
 export const syncDatabase = async () => {
   try {
@@ -579,6 +582,67 @@ const seedInitialData = async () => {
   } catch (allocSeedErr: any) {
     console.warn('[Seed Allocation Warning]:', allocSeedErr.message);
   }
+
+  // 7. Seed initial Admission Requests if none exist
+  try {
+    const admissionCount = await AdmissionRequest.count();
+    if (admissionCount === 0) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      await AdmissionRequest.bulkCreate([
+        {
+          id: 'req-seed-01',
+          name: 'Rohan Gupta',
+          mobile: '9876543211',
+          email: 'rohan.gupta@example.com',
+          dob: '2001-08-14',
+          address: 'Sector 4, Housing Board Colony',
+          plan_id: 'monthly',
+          plan_name: 'Monthly Plan',
+          preferred_seat: 'A05',
+          start_date: todayStr,
+          shift_timing: 'Morning (6 AM - 2 PM)',
+          notes: 'Preparing for SSC CGL Examination',
+          status: 'Pending',
+        },
+        {
+          id: 'req-seed-02',
+          name: 'Ananya Verma',
+          mobile: '9876543212',
+          email: 'ananya.v@example.com',
+          dob: '2000-03-22',
+          address: 'Girls Hostel, University Road',
+          plan_id: 'quarterly',
+          plan_name: 'Quarterly Plan',
+          preferred_seat: 'A08',
+          start_date: todayStr,
+          shift_timing: '24/7 All Day',
+          notes: 'Chartered Accountancy Final preparation',
+          status: 'Pending',
+        },
+        {
+          id: 'req-seed-03',
+          name: 'Kavita Rao',
+          mobile: '9876543213',
+          email: 'kavita.rao@example.com',
+          dob: '1999-11-05',
+          address: 'Civil Lines, Near Metro Gate 2',
+          plan_id: 'monthly',
+          plan_name: 'Monthly Plan',
+          preferred_seat: 'A12',
+          start_date: todayStr,
+          shift_timing: 'Evening (2 PM - 10 PM)',
+          notes: 'Applicant requested cancellation due to relocation',
+          status: 'Rejected',
+          rejection_reason: 'Candidate cancelled enrollment due to relocation to another city',
+          processed_by: 'FocusZone Administrator',
+          processed_at: new Date(),
+        },
+      ]);
+      console.log('🌱 [Seed] Initial admission requests created.');
+    }
+  } catch (seedReqErr: any) {
+    console.warn('[Seed Admission Request Warning]:', seedReqErr.message);
+  }
 };
 
-export { sequelize, User, Seat, MembershipPlan, Activity, Payment, Floor, SeatAllocation };
+export { sequelize, User, Seat, MembershipPlan, Activity, Payment, Floor, SeatAllocation, AdmissionRequest };

@@ -18,6 +18,7 @@ import { ManageUsers } from '../pages/admin/ManageUsers/ManageUsers';
 import { ManageSeatsPlans } from '../pages/admin/ManageSeatsPlans/ManageSeatsPlans';
 import { ManageFloors } from '../pages/admin/ManageFloors/ManageFloors';
 import { ManageFees } from '../pages/admin/ManageFees/ManageFees';
+import { ManageAdmissions } from '../pages/admin/ManageAdmissions/ManageAdmissions';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -40,6 +41,7 @@ export const AppRoutes: React.FC = () => {
       {/* Admin Panel Routes with Left Sidebar */}
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
+        <Route path="admissions" element={<ManageAdmissions />} />
         <Route path="fees" element={<ManageFees />} />
         <Route path="users" element={<ManageUsers />} />
         <Route path="floors" element={<ManageFloors />} />

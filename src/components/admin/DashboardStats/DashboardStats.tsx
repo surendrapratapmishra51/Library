@@ -9,13 +9,14 @@ import {
   UserMinus, 
   ArrowRightLeft, 
   PlusCircle,
-  ExternalLink
+  ExternalLink,
+  UserPlus
 } from 'lucide-react';
 import { useLibrary } from '../../../context/LibraryContext';
 import { Link } from 'react-router-dom';
 
 export const DashboardStats: React.FC = () => {
-  const { stats, users, activities } = useLibrary();
+  const { stats, users, activities, pendingAdmissionsCount } = useLibrary();
 
   // Overview calculations
   const recentlyAdded = users
@@ -76,7 +77,33 @@ export const DashboardStats: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Pending Admissions Alert Banner */}
+      {pendingAdmissionsCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-200/80 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+              <UserPlus className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {pendingAdmissionsCount} Pending Admission {pendingAdmissionsCount === 1 ? 'Request' : 'Requests'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                New students have requested seats from the public website and are awaiting approval.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/admin/admissions"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 shadow-xs transition-colors shrink-0"
+          >
+            <span>Review Requests</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
+
       {/* 6 Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {statCards.map((card) => {

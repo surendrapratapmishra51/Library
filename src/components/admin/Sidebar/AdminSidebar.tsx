@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Building2,
   Receipt,
+  UserPlus,
   X
 } from 'lucide-react';
 import { useLibrary } from '../../../context/LibraryContext';
@@ -19,7 +20,13 @@ interface AdminSidebarProps {
 }
 
 export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onClose }) => {
-  const { logout, stats, floors } = useLibrary();
+  const { logout, stats, floors, pendingAdmissionsCount, currentUser } = useLibrary();
+
+  const adminName = currentUser?.name || 'Administrator';
+  const adminRole = currentUser?.role === 'admin'
+    ? (currentUser?.email === 'admin@focuszonelibrary.com' ? 'Super Administrator' : 'Staff Admin')
+    : 'Admin User';
+  const adminInitial = (adminName.trim().charAt(0) || 'A').toUpperCase();
 
   const navItems = [
     {
@@ -27,35 +34,48 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onCl
       path: '/admin',
       exact: true,
       icon: LayoutDashboard,
-      badge: null
+      badge: null,
+      highlightBadge: false
+    },
+    {
+      name: 'Admission Requests',
+      path: '/admin/admissions',
+      exact: false,
+      icon: UserPlus,
+      badge: pendingAdmissionsCount > 0 ? `${pendingAdmissionsCount} Pending` : null,
+      highlightBadge: pendingAdmissionsCount > 0
     },
     {
       name: 'Fees Management',
       path: '/admin/fees',
       exact: false,
       icon: Receipt,
-      badge: stats.pendingDuesCount > 0 ? `${stats.pendingDuesCount} Dues` : null
+      badge: stats.pendingDuesCount > 0 ? `${stats.pendingDuesCount} Dues` : null,
+      highlightBadge: false
     },
     {
       name: 'Manage Users',
       path: '/admin/users',
       exact: false,
       icon: Users,
-      badge: stats.activeMembers
+      badge: stats.activeMembers,
+      highlightBadge: false
     },
     {
       name: 'Manage Floors',
       path: '/admin/floors',
       exact: false,
       icon: Building2,
-      badge: `${(floors || []).length} Floors`
+      badge: `${(floors || []).length} Floors`,
+      highlightBadge: false
     },
     {
       name: 'Manage Seats & Plans',
       path: '/admin/seats-plans',
       exact: false,
       icon: Armchair,
-      badge: `${stats.availableSeats} Open`
+      badge: `${stats.availableSeats} Open`,
+      highlightBadge: false
     }
   ];
 
@@ -102,19 +122,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onCl
             </button>
           </div>
 
-          {/* Branch Marker */}
-          <div className="mx-4 my-4 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-            <div className="flex items-center gap-2 text-slate-900 font-semibold mb-0.5">
-              <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Civil Lines Branch</span>
-            </div>
-            <p className="text-[11px] text-slate-500">
-              100 Desks · Floors 1 & 2
-            </p>
-          </div>
-
           {/* Navigation Links */}
-          <nav className="px-3 space-y-1.5">
+          <nav className="px-3 pt-3 space-y-1.5">
             <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               Main Navigation
             </div>
@@ -147,6 +156,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onCl
                           className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-semibold ${
                             isActive
                               ? 'bg-emerald-700/60 text-white border border-emerald-500/60'
+                              : item.highlightBadge
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300 font-bold'
                               : 'bg-slate-100 text-slate-600 border border-slate-200'
                           }`}
                         >
@@ -176,6 +187,21 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onCl
             </span>
             <span className="text-[10px] text-slate-400">↗</span>
           </Link>
+
+          {/* Admin User Profile Info Card */}
+          <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-200">
+            <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0">
+              {adminInitial}
+            </div>
+            <div className="text-left text-xs min-w-0">
+              <span className="font-bold text-slate-900 block leading-tight truncate" title={adminName}>
+                {adminName}
+              </span>
+              <span className="text-[10px] text-slate-500 block truncate" title={adminRole}>
+                {adminRole}
+              </span>
+            </div>
+          </div>
 
           {/* Sign Out */}
           <button

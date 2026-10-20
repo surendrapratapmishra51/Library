@@ -194,3 +194,35 @@ export interface RegistrationFormData {
   shiftTiming: '24/7 All Day' | 'Morning (6 AM - 2 PM)' | 'Evening (2 PM - 10 PM)' | 'Night (10 PM - 6 AM)';
   notes?: string;
 }
+
+export interface AdmissionRequest {
+  id: string;
+  name: string;
+  mobile: string;
+  email: string;
+  dob?: string;
+  address?: string;
+  planId: string;
+  planName: string;
+  preferredSeat: string;
+  startDate: string;
+  shiftTiming?: string;
+  notes?: string;
+  status: 'Pending' | 'Accepted' | 'Rejected';
+  rejectionReason?: string | null;
+  allocatedSeat?: string | null;
+  allocatedPlanId?: string | null;
+  allocatedPlanName?: string | null;
+  processedBy?: string | null;
+  processedAt?: string | null;
+  createdUserId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdmissionStats {
+  pendingCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  totalCount: number;
+}

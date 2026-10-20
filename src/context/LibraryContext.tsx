@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Seat, StudentProfile, RegistrationFormData, AdminUser, MembershipPlan, ActivityItem, SeatStatus } from '../types';
+import { Seat, StudentProfile, RegistrationFormData, AdminUser, MembershipPlan, ActivityItem, SeatStatus, AdmissionRequest, AdmissionStats } from '../types';
 import { mockSeats } from '../data/mockSeats';
 import { mockDefaultStudent } from '../data/mockStudents';
 import { mockInitialUsers } from '../data/mockUsers';
 import { mockPlans } from '../data/mockPlans';
 import { Floor, FloorStats } from '../types';
-import { userApi, seatApi, planApi, activityApi, authApi, floorApi, paymentApi, BulkAddSeatsResponse } from '../services';
+import { userApi, seatApi, planApi, activityApi, authApi, floorApi, paymentApi, admissionApi, BulkAddSeatsResponse } from '../services';
 import { calculateExpiryDate, getTodayDateString } from '../utils/dateUtils';
 
 interface LibraryContextType {
@@ -17,12 +17,21 @@ interface LibraryContextType {
   student: StudentProfile;
   isAuthenticated: boolean;
   userRole: 'student' | 'admin' | 'guest';
+  currentUser: any;
   selectedSeatForBooking: Seat | null;
   setSelectedSeatForBooking: (seat: Seat | null) => void;
   login: (role: 'student' | 'admin', profileData?: any, token?: string) => void;
   logout: () => void;
   registerApplication: (formData: RegistrationFormData) => Promise<{ success: boolean; message: string }>;
   updateSeatStatus: (seatId: string, status: 'available' | 'occupied' | 'maintenance', occupant?: string) => void;
+
+  // Admission Requests
+  admissionRequests: AdmissionRequest[];
+  admissionStats: AdmissionStats;
+  pendingAdmissionsCount: number;
+  refreshAdmissionRequests: (params?: any) => Promise<void>;
+  acceptAdmissionRequest: (id: string, payload?: any) => Promise<{ success: boolean; message: string; seatUnavailable?: boolean }>;
+  rejectAdmissionRequest: (id: string, payload?: any) => Promise<{ success: boolean; message: string }>;
   
   // Floor Management
   refreshFloors: () => Promise<void>;
@@ -156,9 +165,51 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return (saved as 'student' | 'admin') || 'guest';
   });
 
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    const saved = localStorage.getItem('fz_library_current_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
   const [selectedSeatForBooking, setSelectedSeatForBooking] = useState<Seat | null>(null);
 
   const [floors, setFloors] = useState<Floor[]>([]);
+  const [admissionRequests, setAdmissionRequests] = useState<AdmissionRequest[]>([]);
+  const [admissionStats, setAdmissionStats] = useState<AdmissionStats>({
+    pendingCount: 0,
+    acceptedCount: 0,
+    rejectedCount: 0,
+    totalCount: 0
+  });
+
+  const refreshAdmissionRequests = async (params?: any) => {
+    try {
+      const res = await admissionApi.getAdmissionRequests(params);
+      if (res && res.success) {
+        const reqs = Array.isArray(res.requests) ? res.requests : [];
+        setAdmissionRequests(reqs);
+        const s: AdmissionStats = res.stats || (res as any).counts || {
+          pendingCount: reqs.filter((r: any) => r.status === 'Pending').length,
+          acceptedCount: reqs.filter((r: any) => r.status === 'Accepted').length,
+          rejectedCount: reqs.filter((r: any) => r.status === 'Rejected').length,
+          totalCount: reqs.length,
+        };
+        setAdmissionStats(s);
+      }
+    } catch (err: any) {
+      console.info('[admissionApi.getAdmissionRequests]', err.message);
+    }
+  };
+
+  const pendingAdmissionsCount = (admissionStats && typeof admissionStats.pendingCount === 'number' && admissionStats.pendingCount > 0)
+    ? admissionStats.pendingCount
+    : (admissionRequests || []).filter((r) => r.status === 'Pending').length;
 
   const refreshFloors = async () => {
     try {
@@ -197,12 +248,13 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const fetchBackendData = async () => {
       try {
-        const [seatsResult, usersResult, plansResult, actResult, floorsResult] = await Promise.allSettled([
+        const [seatsResult, usersResult, plansResult, actResult, floorsResult, admissionsResult] = await Promise.allSettled([
           seatApi.getSeats(),
           userApi.getUsers(),
           planApi.getPlans(),
           activityApi.getActivities(),
           floorApi.getFloors(),
+          admissionApi.getAdmissionRequests(),
         ]);
 
         if (seatsResult.status === 'fulfilled' && Array.isArray(seatsResult.value)) {
@@ -219,6 +271,23 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         if (floorsResult.status === 'fulfilled' && floorsResult.value && Array.isArray(floorsResult.value.floors)) {
           setFloors(floorsResult.value.floors);
+        }
+        if (admissionsResult.status === 'fulfilled' && admissionsResult.value && admissionsResult.value.success) {
+          setAdmissionRequests(admissionsResult.value.requests || []);
+          if (admissionsResult.value.stats) {
+            setAdmissionStats(admissionsResult.value.stats);
+          }
+        }
+
+        // Sync current user profile if session token exists
+        const token = localStorage.getItem('fz_library_token');
+        if (token) {
+          authApi.getMe().then((me) => {
+            if (me) {
+              setCurrentUser(me);
+              localStorage.setItem('fz_library_current_user', JSON.stringify(me));
+            }
+          }).catch(() => {});
         }
       } catch (err) {
         console.info('Backend API running in local fallback mode.');
@@ -287,6 +356,13 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (token) {
       localStorage.setItem('fz_library_token', token);
     }
+    if (profileData) {
+      setCurrentUser(profileData);
+      localStorage.setItem('fz_library_current_user', JSON.stringify(profileData));
+    }
+    if (role === 'admin') {
+      refreshAdmissionRequests().catch(() => {});
+    }
     if (profileData && role === 'student') {
       setStudent((prev) => ({
         ...prev,
@@ -314,123 +390,104 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const logout = () => {
     authApi.logout();
+    localStorage.removeItem('fz_library_current_user');
+    setCurrentUser(null);
     setIsAuthenticated(false);
     setUserRole('guest');
   };
 
   const registerApplication = async (formData: RegistrationFormData): Promise<{ success: boolean; message: string }> => {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const selectedSeatNo = formData.preferredSeat ? formData.preferredSeat.toUpperCase() : 'A04';
-    
-    // Check if seat exists and is available
-    if (formData.preferredSeat) {
-      const seatObj = seats.find((s) => s.number.toUpperCase() === selectedSeatNo);
-      if (seatObj && seatObj.status !== 'available') {
-        return {
-          success: false,
-          message: `Seat ${selectedSeatNo} is currently ${seatObj.status}. Please choose another available seat.`
-        };
-      }
-    }
-
-    // Update seat to occupied
-    setSeats((prev) =>
-      prev.map((s) => {
-        if (s.number.toUpperCase() === selectedSeatNo) {
-          return {
-            ...s,
-            status: 'occupied',
-            occupiedBy: formData.fullName,
-            assignedUntil: '30 Dec 2026'
-          };
-        }
-        return s;
-      })
-    );
-
+    const selectedSeatNo = formData.preferredSeat ? formData.preferredSeat.toUpperCase().trim() : 'A04';
     const chosenPlan = plans.find((p) => p.id === formData.planId);
     const startDate = formData.startDate || getTodayDateString();
-    const expiryDate = calculateExpiryDate(startDate, chosenPlan);
 
-    // Create user record in Admin Users list
-    const newUser: AdminUser = {
-      id: `usr-${Date.now()}`,
-      name: formData.fullName,
-      mobile: formData.mobile,
-      email: formData.email,
-      address: formData.address,
-      plan: chosenPlan?.name || 'Custom Plan',
-      planId: formData.planId,
-      seat: selectedSeatNo,
-      joiningDate: startDate,
-      expiryDate,
-      status: 'Active',
-      history: [`Joined on ${startDate} with reserved Seat ${selectedSeatNo}`]
-    };
-
-    setUsers((prev) => [newUser, ...prev]);
-
-    // Persist to backend database via authApi.register
     try {
-      const regRes = await authApi.register({
+      const res = await admissionApi.submitAdmissionRequest({
         name: formData.fullName,
         mobile: formData.mobile,
         email: formData.email,
-        password: formData.password || 'student123',
-        role: 'student',
+        dob: formData.dob,
+        address: formData.address,
         planId: formData.planId,
-        preferredSeat: selectedSeatNo !== 'None' ? selectedSeatNo : undefined,
-        address: formData.address
+        planName: chosenPlan?.name,
+        preferredSeat: selectedSeatNo,
+        startDate: startDate,
+        shiftTiming: formData.shiftTiming,
+        notes: formData.notes
       });
-      if (regRes && regRes.token && regRes.user) {
-        login('student', regRes.user, regRes.token);
+
+      if (res.success) {
+        refreshAdmissionRequests().catch(() => {});
+        return {
+          success: true,
+          message: res.message || 'Your admission request has been submitted successfully and is awaiting admin approval.'
+        };
+      } else {
+        return {
+          success: false,
+          message: res.message || 'Unable to submit admission request. Please try again.'
+        };
       }
     } catch (err: any) {
-      console.info('[authApi.register fallback]', err.message);
-      userApi.createUser({
-        name: formData.fullName,
-        mobile: formData.mobile,
-        email: formData.email,
-        address: formData.address,
-        plan: chosenPlan?.name || 'Custom Plan',
-        planId: formData.planId,
-        seat: selectedSeatNo,
-        joiningDate: startDate,
-        expiryDate,
-        status: 'Active',
-        role: 'student',
-      }).catch((e) => console.info('[userApi.createUser fallback]', e.message));
+      const errMsg = err.response?.data?.message || err.message || 'Failed to submit admission request.';
+      return {
+        success: false,
+        message: errMsg
+      };
     }
+  };
 
-    // Log Activity
-    const newActivity: ActivityItem = {
-      id: `act-${Date.now()}`,
-      type: 'member_added',
-      title: 'New Member Registered',
-      timestamp: 'Just now',
-      details: `${formData.fullName} enrolled (${newUser.plan}) · Seat ${selectedSeatNo}`,
-      meta: { userName: formData.fullName, seatNumber: selectedSeatNo }
-    };
-    setActivities((prev) => [newActivity, ...prev]);
+  const acceptAdmissionRequest = async (
+    id: string,
+    payload?: any
+  ): Promise<{ success: boolean; message: string; seatUnavailable?: boolean }> => {
+    try {
+      const res = await admissionApi.acceptAdmissionRequest(id, payload);
+      if (res.success) {
+        await Promise.allSettled([
+          refreshSeats(),
+          refreshUsers(),
+          refreshAdmissionRequests(),
+          refreshFloors()
+        ]);
+        return { success: true, message: res.message || 'Admission request accepted successfully.' };
+      } else {
+        return {
+          success: false,
+          message: res.message || 'Failed to accept admission request.',
+          seatUnavailable: res.seatUnavailable
+        };
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to accept admission request.';
+      const isUnavailable = err.response?.data?.seatUnavailable || false;
+      return {
+        success: false,
+        message: errMsg,
+        seatUnavailable: isUnavailable
+      };
+    }
+  };
 
-    // Update student state for demonstration
-    setStudent((prev) => ({
-      ...prev,
-      name: formData.fullName,
-      email: formData.email,
-      mobile: formData.mobile,
-      dob: formData.dob,
-      address: formData.address,
-      assignedSeat: selectedSeatNo,
-      membershipStatus: 'Active',
-      startDate: formData.startDate || '03 Oct 2026'
-    }));
-
-    return {
-      success: true,
-      message: `Application received successfully! Your seat reservation for Seat ${selectedSeatNo} is confirmed.`
-    };
+  const rejectAdmissionRequest = async (
+    id: string,
+    payload?: any
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await admissionApi.rejectAdmissionRequest(id, payload);
+      if (res.success) {
+        await refreshAdmissionRequests();
+        return { success: true, message: res.message || 'Admission request rejected.' };
+      } else {
+        return { success: false, message: res.message || 'Failed to reject admission request.' };
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to reject admission request.';
+      return {
+        success: false,
+        message: errMsg
+      };
+    }
   };
 
   const updateSeatStatus = (seatId: string, status: SeatStatus, occupant?: string) => {
@@ -915,12 +972,19 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         student,
         isAuthenticated,
         userRole,
+        currentUser,
         selectedSeatForBooking,
         setSelectedSeatForBooking,
         login,
         logout,
         registerApplication,
         updateSeatStatus,
+        admissionRequests,
+        admissionStats,
+        pendingAdmissionsCount,
+        refreshAdmissionRequests,
+        acceptAdmissionRequest,
+        rejectAdmissionRequest,
         refreshFloors,
         refreshSeats,
         refreshUsers,

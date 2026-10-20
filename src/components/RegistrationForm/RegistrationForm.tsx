@@ -9,10 +9,10 @@ import { CheckCircle2, Armchair, Shield, Sparkles, AlertCircle } from 'lucide-re
 export const RegistrationForm: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { seats, registerApplication, login } = useLibrary();
+  const { seats, plans, registerApplication } = useLibrary();
 
   const preselectedSeat = searchParams.get('seat') || '';
-  const preselectedPlan = searchParams.get('plan') || 'quarterly';
+  const preselectedPlan = searchParams.get('plan') || (plans.length > 0 ? plans[0].id : 'quarterly');
 
   const [formData, setFormData] = useState<RegistrationFormData>({
     fullName: '',
@@ -77,35 +77,43 @@ export const RegistrationForm: React.FC = () => {
       setIsSubmitting(true);
       const res = await registerApplication(formData);
       setIsSubmitting(false);
-      setSuccessResponse(
-        res.message || 'Your admission and desk reservation application has been forwarded to library administration.'
-      );
-    } catch {
+      if (res.success) {
+        setSuccessResponse(
+          res.message || 'Your admission request has been forwarded to the library administration.'
+        );
+      } else {
+        setErrorMsg(res.message || 'Unable to submit admission request. Please try again.');
+      }
+    } catch (err: any) {
       setIsSubmitting(false);
-      setErrorMsg('Failed to process admission request. Please try again or contact the library front desk.');
+      setErrorMsg(err.message || 'Failed to process admission request. Please try again or contact the library front desk.');
     }
   };
 
   if (successResponse) {
+    const selectedPlanObj = plans.find((p) => p.id === formData.planId);
     return (
-      <div className="bg-white rounded-2xl border border-emerald-200 p-8 sm:p-10 shadow-lg text-center max-w-xl mx-auto space-y-6">
-        <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-9 h-9" />
+      <div className="bg-white rounded-2xl border border-amber-200 p-8 sm:p-10 shadow-lg text-center max-w-xl mx-auto space-y-6">
+        <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+          <CheckCircle2 className="w-9 h-9 text-emerald-600" />
         </div>
 
         <div className="space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+            Status: Awaiting Admin Approval
+          </div>
           <h3 className="text-2xl font-bold text-slate-900 font-display">
-            Admission Application Received!
+            Admission Request Submitted!
           </h3>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Your admission request has been sent to library administration. Please visit the library reception or contact staff to verify your admission and receive your Student Portal login credentials.
+            {successResponse}
           </p>
         </div>
 
         {/* Admission Summary Card */}
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 text-left text-xs space-y-2.5">
           <div className="flex justify-between">
-            <span className="text-slate-500">Candidate Name:</span>
+            <span className="text-slate-500">Applicant Name:</span>
             <span className="font-semibold text-slate-900">{formData.fullName}</span>
           </div>
           <div className="flex justify-between">
@@ -113,39 +121,33 @@ export const RegistrationForm: React.FC = () => {
             <span className="font-semibold text-slate-900">{formData.mobile}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Selected Plan:</span>
-            <span className="font-semibold text-emerald-800">
-              {mockPlans.find((p) => p.id === formData.planId)?.name || 'Custom Plan'}
+            <span className="text-slate-500">Requested Plan:</span>
+            <span className="font-semibold text-indigo-700">
+              {selectedPlanObj?.name || 'Selected Plan'}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Requested Desk:</span>
+            <span className="text-slate-500">Requested Seat:</span>
             <span className="font-mono font-bold text-slate-900">
-              {formData.preferredSeat ? `Seat ${formData.preferredSeat}` : 'Front Desk Assigned'}
+              {formData.preferredSeat ? `Seat ${formData.preferredSeat}` : 'Front Desk Assignment'}
             </span>
           </div>
           <div className="flex justify-between border-t border-slate-200/70 pt-2">
-            <span className="text-slate-500">Commencement Date:</span>
+            <span className="text-slate-500">Target Joining Date:</span>
             <span className="font-semibold text-slate-800">{formData.startDate}</span>
           </div>
         </div>
 
         <p className="text-xs text-slate-500">
-          Our administrator will contact you at <strong>{formData.mobile}</strong> to confirm your slot allotment.
+          Our library admin will review your application and confirm your seat allocation. You will receive an update at <strong>{formData.mobile}</strong> once approved.
         </p>
 
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
           <Button
             variant="primary"
-            onClick={() => navigate('/login')}
-          >
-            Already Enrolled? Sign In
-          </Button>
-          <Button
-            variant="outline"
             onClick={() => navigate('/')}
           >
-            Return to Homepage
+            Back to Home
           </Button>
           <Button
             variant="outline"
@@ -157,7 +159,7 @@ export const RegistrationForm: React.FC = () => {
                 email: '',
                 dob: '',
                 address: '',
-                planId: 'quarterly',
+                planId: plans[0]?.id || 'quarterly',
                 preferredSeat: '',
                 startDate: new Date().toISOString().split('T')[0],
                 shiftTiming: '24/7 All Day',
@@ -171,6 +173,7 @@ export const RegistrationForm: React.FC = () => {
       </div>
     );
   }
+
 
   return (
     <form
@@ -301,7 +304,7 @@ export const RegistrationForm: React.FC = () => {
             onChange={handleChange}
             className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors font-medium text-slate-800"
           >
-            {mockPlans.map((plan) => (
+            {(plans.length > 0 ? plans : mockPlans).map((plan) => (
               <option key={plan.id} value={plan.id}>
                 {plan.name} — ₹{plan.price} ({plan.duration})
               </option>
