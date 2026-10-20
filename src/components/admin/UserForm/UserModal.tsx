@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, UserPlus, AlertCircle, Receipt, Armchair, Building2, Undo2 } from 'lucide-react';
+import { X, UserPlus, AlertCircle, Receipt, Armchair, Building2, Undo2, ShieldCheck, UserCheck } from 'lucide-react';
 import { AdminUser } from '../../../types';
 import { useLibrary } from '../../../context/LibraryContext';
 import { Button } from '../../common/Button';
@@ -19,6 +19,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
     mobile: '',
     email: '',
     password: 'student123',
+    role: 'student' as 'student' | 'admin',
     address: '',
     planId: 'monthly',
     plan: 'Monthly Plan',
@@ -107,6 +108,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
         mobile: userToEdit.mobile,
         email: userToEdit.email,
         password: '',
+        role: (userToEdit.role || 'student') as 'student' | 'admin',
         address: userToEdit.address,
         planId: userToEdit.planId,
         plan: userToEdit.plan,
@@ -134,6 +136,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
         mobile: '',
         email: '',
         password: 'student123',
+        role: 'student',
         address: '',
         planId: initialPlan?.id || 'monthly',
         plan: initialPlan?.name || 'Monthly Plan',
@@ -216,44 +219,47 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
     setErrorMsg(null);
 
     if (!formData.name.trim()) {
-      setErrorMsg('Please enter student full name.');
+      setErrorMsg('Please enter full name.');
       return;
     }
     if (!formData.mobile.trim() || formData.mobile.length < 10) {
       setErrorMsg('Please enter a valid 10-digit mobile number.');
       return;
     }
-    if (!formData.joiningDate || !formData.joiningDate.trim()) {
-      setErrorMsg('Please select a valid Joining Date.');
-      return;
-    }
-    if (!formData.expiryDate || !formData.expiryDate.trim()) {
-      setErrorMsg('Please select a valid Membership Expiry Date.');
-      return;
-    }
-    if (!isExpiryDateValid(formData.joiningDate, formData.expiryDate)) {
-      setErrorMsg('Membership Expiry Date must be later than Joining Date.');
-      return;
-    }
-    if (formData.discount < 0) {
-      setErrorMsg('Discount amount cannot be negative.');
-      return;
-    }
-    if (formData.discount > formData.baseFee) {
-      setErrorMsg(`Discount (₹${formData.discount}) cannot be greater than Standard Plan Fee (₹${formData.baseFee}).`);
-      return;
-    }
-    if (formData.discount > 0 && !formData.discountReason.trim()) {
-      setErrorMsg('Please enter a reason for applying student discount.');
-      return;
-    }
-    if (formData.paidAmount < 0) {
-      setErrorMsg('Amount received cannot be negative.');
-      return;
-    }
-    if (formData.paidAmount > formData.finalFee) {
-      setErrorMsg(`Amount received (₹${formData.paidAmount}) cannot exceed Final Payable Amount (₹${formData.finalFee}).`);
-      return;
+
+    if (formData.role !== 'admin') {
+      if (!formData.joiningDate || !formData.joiningDate.trim()) {
+        setErrorMsg('Please select a valid Joining Date.');
+        return;
+      }
+      if (!formData.expiryDate || !formData.expiryDate.trim()) {
+        setErrorMsg('Please select a valid Membership Expiry Date.');
+        return;
+      }
+      if (!isExpiryDateValid(formData.joiningDate, formData.expiryDate)) {
+        setErrorMsg('Membership Expiry Date must be later than Joining Date.');
+        return;
+      }
+      if (formData.discount < 0) {
+        setErrorMsg('Discount amount cannot be negative.');
+        return;
+      }
+      if (formData.discount > formData.baseFee) {
+        setErrorMsg(`Discount (₹${formData.discount}) cannot be greater than Standard Plan Fee (₹${formData.baseFee}).`);
+        return;
+      }
+      if (formData.discount > 0 && !formData.discountReason.trim()) {
+        setErrorMsg('Please enter a reason for applying student discount.');
+        return;
+      }
+      if (formData.paidAmount < 0) {
+        setErrorMsg('Amount received cannot be negative.');
+        return;
+      }
+      if (formData.paidAmount > formData.finalFee) {
+        setErrorMsg(`Amount received (₹${formData.paidAmount}) cannot exceed Final Payable Amount (₹${formData.finalFee}).`);
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -322,6 +328,63 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
             </div>
           )}
 
+          {/* Account Role Selector */}
+          {!userToEdit && (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+              <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px]">
+                Account Type <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ 
+                    ...prev, 
+                    role: 'student', 
+                    password: prev.password || 'student123',
+                    seat: prev.seat && prev.seat !== 'None' ? prev.seat : (seats.find((s) => s.status === 'available')?.number || 'None'),
+                    plan: 'Monthly Plan',
+                    planId: 'monthly',
+                    baseFee: 1200,
+                    finalFee: 1200,
+                    paidAmount: 1200
+                  }))}
+                  className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                    formData.role === 'student'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Student Member</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ 
+                    ...prev, 
+                    role: 'admin', 
+                    password: prev.password === 'student123' ? 'admin123' : (prev.password || 'admin123'),
+                    seat: 'None',
+                    plan: 'Staff Administrator',
+                    planId: 'staff',
+                    baseFee: 0,
+                    discount: 0,
+                    finalFee: 0,
+                    paidAmount: 0,
+                    balanceDue: 0
+                  }))}
+                  className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                    formData.role === 'admin'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Library Staff / Admin</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Full Name & Mobile */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -332,7 +395,7 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
                 type="text"
                 name="name"
                 required
-                placeholder="e.g. Rahul Sharma"
+                placeholder={formData.role === 'admin' ? 'e.g. Ramesh Kumar (Staff)' : 'e.g. Rahul Sharma'}
                 value={formData.name}
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
@@ -359,12 +422,13 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Email Address
+                Email Address {formData.role === 'admin' && <span className="text-rose-500">*</span>}
               </label>
               <input
                 type="email"
                 name="email"
-                placeholder="student@example.com"
+                required={formData.role === 'admin'}
+                placeholder={formData.role === 'admin' ? 'staff@focuszonelibrary.com' : 'student@example.com'}
                 value={formData.email}
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
@@ -373,12 +437,12 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
 
             <div>
               <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Residential Address
+                {formData.role === 'admin' ? 'Department / Role Notes' : 'Residential Address'}
               </label>
               <input
                 type="text"
                 name="address"
-                placeholder="Hostel or locality"
+                placeholder={formData.role === 'admin' ? 'e.g. Front Desk Librarian' : 'Hostel or locality'}
                 value={formData.address}
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
@@ -390,27 +454,45 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
           <div>
             <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
               <span>Account Login Password {userToEdit ? '(Leave blank to keep unchanged)' : '*'}</span>
-              {!userToEdit && <span className="text-[10px] text-slate-400 font-normal">Default: student123</span>}
+              {!userToEdit && (
+                <span className="text-[10px] text-slate-400 font-normal">
+                  Default: {formData.role === 'admin' ? 'admin123' : 'student123'}
+                </span>
+              )}
             </label>
             <input
               type="text"
               name="password"
-              placeholder={userToEdit ? 'Enter new password if updating' : 'e.g. student123'}
+              placeholder={userToEdit ? 'Enter new password if updating' : (formData.role === 'admin' ? 'e.g. admin123' : 'e.g. student123')}
               value={formData.password}
               onChange={handleChange}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-mono"
             />
             <p className="text-[10px] text-slate-500 mt-1">
-              Student will use their Mobile / Email with this password to access the Student Portal.
+              {formData.role === 'admin'
+                ? 'Staff member will use their Email / Mobile with this password to sign in to the Admin Console.'
+                : 'Student will use their Mobile / Email with this password to access the Student Portal.'}
             </p>
           </div>
 
-          {/* Membership Plan & Location / Seat Assignment */}
-          <div className="space-y-3">
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Membership Plan *
-              </label>
+          {formData.role === 'admin' ? (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 text-slate-900 font-bold">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Staff Administrator Privileges</span>
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                This staff member will be granted administrative dashboard access with the mobile/email and password specified above. They will have access to manage library students, seat layout, and fee records.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Membership Plan & Location / Seat Assignment */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Membership Plan *
+                  </label>
               <select
                 name="planId"
                 value={formData.planId}
@@ -664,6 +746,8 @@ export const UserModal: React.FC<UserModalProps> = ({ isOpen, userToEdit, onClos
               Note: Membership duration and expiry depend on plan duration, not on the amount received.
             </p>
           </div>
+          </>
+          )}
 
           {/* Membership Status - Only shown when editing an existing member */}
           {userToEdit && (

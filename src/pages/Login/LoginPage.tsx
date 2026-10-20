@@ -10,10 +10,10 @@ export const LoginPage: React.FC = () => {
             F
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 font-display">
-            Member & Staff Portal
+            Member & Staff Sign In
           </h1>
           <p className="text-xs text-slate-500">
-            Sign in to check your active seat, attendance logs, and renewal invoices.
+            Sign in with the mobile or email credentials provided during your enrollment
           </p>
         </div>
 

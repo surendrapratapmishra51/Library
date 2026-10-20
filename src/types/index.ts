@@ -133,22 +133,29 @@ export interface StudentProfile {
   name: string;
   email: string;
   mobile: string;
-  dob: string;
-  address: string;
+  dob?: string;
+  address?: string;
   planId: string;
   planName: string;
   assignedSeat: string;
   membershipStatus: 'Active' | 'Expiring Soon' | 'Expired';
   startDate: string;
   expiryDate: string;
-  lastPayment: {
+  baseFee?: number;
+  discount?: number;
+  discountReason?: string;
+  finalFee?: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  paymentStatus?: 'Paid' | 'Partial' | 'Pending';
+  lastPayment?: {
     amount: number;
     date: string;
     method: string;
     invoiceNo: string;
-  };
-  nextRenewalDate: string;
-  todayStatus: 'Checked In' | 'Checked Out' | 'Not Visited';
+  } | null;
+  nextRenewalDate?: string;
+  todayStatus?: 'Checked In' | 'Checked Out' | 'Not Visited';
   checkInTime?: string;
 }
 
@@ -178,6 +185,7 @@ export interface RegistrationFormData {
   fullName: string;
   mobile: string;
   email: string;
+  password?: string;
   dob: string;
   address: string;
   planId: string;

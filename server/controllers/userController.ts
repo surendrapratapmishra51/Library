@@ -1,12 +1,18 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { Op } from 'sequelize';
 import { User, Seat, Activity, MembershipPlan, Payment, Floor, SeatAllocation } from '../models/index.js';
 import { calculateExpiryDate, isExpiryDateValid, isValidDateString, getTodayDateString } from '../utils/dateUtils.js';
 
-export const getUsers = async (_req: Request, res: Response) => {
+export const getUsers = async (req: Request, res: Response) => {
   try {
+    const { role } = req.query;
+    const whereClause: any = {};
+    if (role && role !== 'all') {
+      whereClause.role = role;
+    }
     const users = await User.findAll({
-      where: { role: 'student' },
+      where: whereClause,
       attributes: { exclude: ['password'] },
       order: [['created_at', 'DESC']]
     });
@@ -58,6 +64,7 @@ export const createUser = async (req: Request, res: Response) => {
     const cleanName = name.trim();
     const cleanMobile = String(mobile).trim();
     const cleanEmail = email && typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
+    const userRole: 'admin' | 'student' = role === 'admin' ? 'admin' : 'student';
 
     // Check duplicate mobile or email
     const duplicateConditions: any[] = [{ mobile: cleanMobile }];
@@ -73,16 +80,16 @@ export const createUser = async (req: Request, res: Response) => {
 
     if (duplicate) {
       if (duplicate.mobile === cleanMobile) {
-        return res.status(409).json({ error: `A member with mobile number ${cleanMobile} already exists.` });
+        return res.status(409).json({ error: `An account with mobile number ${cleanMobile} already exists.` });
       }
       if (cleanEmail && duplicate.email === cleanEmail) {
-        return res.status(409).json({ error: `A member with email ${cleanEmail} already exists.` });
+        return res.status(409).json({ error: `An account with email ${cleanEmail} already exists.` });
       }
-      return res.status(409).json({ error: 'A member with this mobile number or email already exists.' });
+      return res.status(409).json({ error: 'An account with this mobile number or email already exists.' });
     }
 
-    // Verify seat availability
-    const cleanSeat = seat && seat !== 'None' ? seat.trim().toUpperCase() : 'None';
+    // Verify seat availability (only if assigning a seat)
+    const cleanSeat = userRole === 'admin' ? 'None' : (seat && seat !== 'None' ? seat.trim().toUpperCase() : 'None');
     let seatRecord: Seat | null = null;
     if (cleanSeat !== 'None') {
       seatRecord = await Seat.findOne({ where: { number: cleanSeat } });
@@ -100,19 +107,21 @@ export const createUser = async (req: Request, res: Response) => {
       }
     }
 
-    const rawPassword = password && String(password).trim() ? String(password).trim() : 'student123';
+    const defaultPass = userRole === 'admin' ? 'admin123' : 'student123';
+    const rawPassword = password && String(password).trim() ? String(password).trim() : defaultPass;
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
-    const id = `usr-${Date.now()}`;
-    const userRole = role === 'admin' ? 'admin' : 'student';
+    const id = userRole === 'admin' ? `usr-admin-${Date.now()}` : `usr-${Date.now()}`;
 
     // Validate joining date
     const cleanJoiningDate = joiningDate && isValidDateString(joiningDate)
       ? String(joiningDate).trim()
       : getTodayDateString();
 
-    // Validate or calculate expiry date (Expiry continues to depend on plan duration & start date, not amount paid)
+    // Validate or calculate expiry date
     let cleanExpiryDate: string;
-    if (expiryDate && typeof expiryDate === 'string' && expiryDate.trim()) {
+    if (userRole === 'admin') {
+      cleanExpiryDate = '2099-12-31';
+    } else if (expiryDate && typeof expiryDate === 'string' && expiryDate.trim()) {
       const trimmedExp = expiryDate.trim();
       if (!isValidDateString(trimmedExp)) {
         return res.status(400).json({ error: 'Invalid Membership Expiry Date format (expected YYYY-MM-DD).' });
@@ -131,29 +140,29 @@ export const createUser = async (req: Request, res: Response) => {
       );
     }
 
-    // 1. Fee Calculation & Discount Validation
-    let cleanBaseFee = Number(baseFee);
-    if (isNaN(cleanBaseFee) || cleanBaseFee < 0) {
+    // Fee Calculation
+    let cleanBaseFee = userRole === 'admin' ? 0 : Number(baseFee);
+    if (userRole !== 'admin' && (isNaN(cleanBaseFee) || cleanBaseFee < 0)) {
       const pRecord = planId ? await MembershipPlan.findByPk(planId) : null;
       cleanBaseFee = pRecord ? Number(pRecord.price) : 0;
     }
 
-    const cleanDiscount = Math.max(0, Number(discount) || 0);
+    const cleanDiscount = userRole === 'admin' ? 0 : Math.max(0, Number(discount) || 0);
     if (cleanDiscount > cleanBaseFee) {
       return res.status(400).json({ error: 'Discount amount cannot be greater than the Standard Plan Fee.' });
     }
 
-    const cleanFinalFee = Math.max(0, cleanBaseFee - cleanDiscount);
-    const cleanPaidAmount = Math.max(0, Number(paidAmount) || 0);
+    const cleanFinalFee = userRole === 'admin' ? 0 : Math.max(0, cleanBaseFee - cleanDiscount);
+    const cleanPaidAmount = userRole === 'admin' ? 0 : Math.max(0, Number(paidAmount) || 0);
 
     if (cleanPaidAmount > cleanFinalFee) {
       return res.status(400).json({ error: 'Amount received cannot exceed the Final Payable Amount.' });
     }
 
-    const cleanBalanceDue = Math.max(0, cleanFinalFee - cleanPaidAmount);
+    const cleanBalanceDue = userRole === 'admin' ? 0 : Math.max(0, cleanFinalFee - cleanPaidAmount);
 
     let cleanPaymentStatus: 'Paid' | 'Partial' | 'Pending';
-    if (cleanBalanceDue === 0 && (cleanFinalFee === 0 || cleanPaidAmount > 0)) {
+    if (userRole === 'admin' || (cleanBalanceDue === 0 && (cleanFinalFee === 0 || cleanPaidAmount > 0))) {
       cleanPaymentStatus = 'Paid';
     } else if (cleanPaidAmount > 0 && cleanBalanceDue > 0) {
       cleanPaymentStatus = 'Partial';
@@ -166,7 +175,9 @@ export const createUser = async (req: Request, res: Response) => {
       : null;
 
     const history = [
-      `Enrolled by Admin on ${cleanJoiningDate} (Assigned Seat: ${cleanSeat}, Plan: ${plan || 'Plan'}, Fee: ₹${cleanFinalFee}, Paid: ₹${cleanPaidAmount}, Due: ₹${cleanBalanceDue})`
+      userRole === 'admin'
+        ? `Appointed as Library Staff / Admin on ${cleanJoiningDate}`
+        : `Enrolled by Admin on ${cleanJoiningDate} (Assigned Seat: ${cleanSeat}, Plan: ${plan || 'Plan'}, Fee: ₹${cleanFinalFee}, Paid: ₹${cleanPaidAmount}, Due: ₹${cleanBalanceDue})`
     ];
 
     const newUser = await User.create({
@@ -177,8 +188,8 @@ export const createUser = async (req: Request, res: Response) => {
       password: hashedPassword,
       role: userRole,
       address: address ? address.trim() : '',
-      plan: plan || 'Monthly Plan',
-      plan_id: planId || 'monthly',
+      plan: userRole === 'admin' ? 'Staff Administrator' : (plan || 'Monthly Plan'),
+      plan_id: userRole === 'admin' ? 'staff' : (planId || 'monthly'),
       seat: cleanSeat,
       joining_date: cleanJoiningDate,
       expiry_date: cleanExpiryDate,

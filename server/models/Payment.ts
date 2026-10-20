@@ -89,6 +89,11 @@ Payment.init(
     underscored: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    indexes: [
+      { fields: ['user_id'] },
+      { fields: ['payment_date'] },
+      { fields: ['status'] },
+    ],
   }
 );
 

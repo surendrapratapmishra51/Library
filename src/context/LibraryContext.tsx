@@ -5,7 +5,7 @@ import { mockDefaultStudent } from '../data/mockStudents';
 import { mockInitialUsers } from '../data/mockUsers';
 import { mockPlans } from '../data/mockPlans';
 import { Floor, FloorStats } from '../types';
-import { userApi, seatApi, planApi, activityApi, authApi, floorApi, BulkAddSeatsResponse } from '../services';
+import { userApi, seatApi, planApi, activityApi, authApi, floorApi, paymentApi, BulkAddSeatsResponse } from '../services';
 import { calculateExpiryDate, getTodayDateString } from '../utils/dateUtils';
 
 interface LibraryContextType {
@@ -47,6 +47,9 @@ interface LibraryContextType {
   addPlan: (planData: Omit<MembershipPlan, 'id'>) => { success: boolean; message: string };
   editPlan: (planId: string, planData: Partial<MembershipPlan>) => { success: boolean; message: string };
   togglePlanStatus: (planId: string) => { success: boolean; message: string };
+  refreshUsers: () => Promise<void>;
+  recordPayment: (payload: any) => Promise<{ success: boolean; message: string; payment?: any }>;
+  manageDiscount: (userId: string, payload: any) => Promise<{ success: boolean; message: string; user?: any }>;
 
   stats: {
     totalMembers: number;
@@ -57,6 +60,9 @@ interface LibraryContextType {
     occupiedSeats: number;
     maintenanceSeats: number;
     activePlans: number;
+    totalFeesDue: number;
+    pendingDuesCount: number;
+    amountCollected: number;
   };
 }
 
@@ -176,6 +182,17 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const refreshUsers = async () => {
+    try {
+      const res = await userApi.getUsers();
+      if (Array.isArray(res)) {
+        setUsers(res);
+      }
+    } catch (err: any) {
+      console.info('[userApi.getUsers]', err.message);
+    }
+  };
+
   // Fetch from MySQL Backend on mount using centralized services
   useEffect(() => {
     const fetchBackendData = async () => {
@@ -232,6 +249,36 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('fz_library_student', JSON.stringify(student));
   }, [student]);
 
+  // Synchronize student profile with fresh database user record
+  useEffect(() => {
+    if (userRole === 'student' && student?.id && users.length > 0) {
+      const match = users.find((u) => u.id === student.id || (student.mobile && u.mobile === student.mobile));
+      if (match) {
+        setStudent((prev) => ({
+          ...prev,
+          id: match.id,
+          name: match.name,
+          email: match.email || prev.email,
+          mobile: match.mobile,
+          address: match.address || prev.address || '',
+          assignedSeat: match.seat || 'None',
+          planName: match.plan || prev.planName,
+          planId: match.planId || prev.planId,
+          startDate: match.joiningDate || prev.startDate,
+          expiryDate: match.expiryDate || prev.expiryDate,
+          membershipStatus: match.status === 'Active' ? 'Active' : 'Expired',
+          baseFee: Number(match.baseFee) || 0,
+          discount: Number(match.discount) || 0,
+          discountReason: match.discountReason || '',
+          finalFee: Number(match.finalFee) || 0,
+          paidAmount: Number(match.paidAmount) || 0,
+          balanceDue: Number(match.balanceDue) || 0,
+          paymentStatus: match.paymentStatus || 'Pending',
+        }));
+      }
+    }
+  }, [users, userRole, student?.id, student?.mobile]);
+
   const login = (role: 'student' | 'admin', profileData?: any, token?: string) => {
     setIsAuthenticated(true);
     setUserRole(role);
@@ -247,12 +294,20 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         name: profileData.name || prev.name,
         email: profileData.email || prev.email,
         mobile: profileData.mobile || prev.mobile,
+        address: profileData.address || prev.address || '',
         assignedSeat: profileData.seat || prev.assignedSeat,
         planName: profileData.plan || prev.planName,
         planId: profileData.planId || prev.planId,
         startDate: profileData.joiningDate || prev.startDate,
         expiryDate: profileData.expiryDate || prev.expiryDate,
         membershipStatus: profileData.status === 'Active' ? 'Active' : 'Expired',
+        baseFee: profileData.baseFee !== undefined ? Number(profileData.baseFee) : prev.baseFee,
+        discount: profileData.discount !== undefined ? Number(profileData.discount) : prev.discount,
+        discountReason: profileData.discountReason || prev.discountReason,
+        finalFee: profileData.finalFee !== undefined ? Number(profileData.finalFee) : prev.finalFee,
+        paidAmount: profileData.paidAmount !== undefined ? Number(profileData.paidAmount) : prev.paidAmount,
+        balanceDue: profileData.balanceDue !== undefined ? Number(profileData.balanceDue) : prev.balanceDue,
+        paymentStatus: profileData.paymentStatus || prev.paymentStatus,
       }));
     }
   };
@@ -316,20 +371,37 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setUsers((prev) => [newUser, ...prev]);
 
-    // Persist to backend database via userApi
-    userApi.createUser({
-      name: formData.fullName,
-      mobile: formData.mobile,
-      email: formData.email,
-      address: formData.address,
-      plan: chosenPlan?.name || 'Custom Plan',
-      planId: formData.planId,
-      seat: selectedSeatNo,
-      joiningDate: startDate,
-      expiryDate,
-      status: 'Active',
-      role: 'student',
-    }).catch((err) => console.info('[userApi.createUser registration]', err.message));
+    // Persist to backend database via authApi.register
+    try {
+      const regRes = await authApi.register({
+        name: formData.fullName,
+        mobile: formData.mobile,
+        email: formData.email,
+        password: formData.password || 'student123',
+        role: 'student',
+        planId: formData.planId,
+        preferredSeat: selectedSeatNo !== 'None' ? selectedSeatNo : undefined,
+        address: formData.address
+      });
+      if (regRes && regRes.token && regRes.user) {
+        login('student', regRes.user, regRes.token);
+      }
+    } catch (err: any) {
+      console.info('[authApi.register fallback]', err.message);
+      userApi.createUser({
+        name: formData.fullName,
+        mobile: formData.mobile,
+        email: formData.email,
+        address: formData.address,
+        plan: chosenPlan?.name || 'Custom Plan',
+        planId: formData.planId,
+        seat: selectedSeatNo,
+        joiningDate: startDate,
+        expiryDate,
+        status: 'Active',
+        role: 'student',
+      }).catch((e) => console.info('[userApi.createUser fallback]', e.message));
+    }
 
     // Log Activity
     const newActivity: ActivityItem = {
@@ -551,6 +623,51 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (err: any) {
       console.error('[LibraryContext.changeUserSeat]', err);
       return { success: false, message: err?.data?.error || err?.message || 'Failed to change seat.' };
+    }
+  };
+
+  // Record Payment
+  const recordPayment = async (payload: any): Promise<{ success: boolean; message: string; payment?: any }> => {
+    try {
+      const res = await paymentApi.recordPayment(payload);
+      if (res.success) {
+        // Refresh users and activities
+        try {
+          const [updatedUsers, updatedActs] = await Promise.all([
+            userApi.getUsers(),
+            activityApi.getActivities(),
+          ]);
+          if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+          if (Array.isArray(updatedActs)) setActivities(updatedActs);
+        } catch {}
+        return { success: true, message: res.message, payment: res.payment };
+      }
+      return { success: false, message: res.message || 'Failed to record payment.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.recordPayment]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to record payment.' };
+    }
+  };
+
+  // Manage Discount
+  const manageDiscount = async (userId: string, payload: any): Promise<{ success: boolean; message: string; user?: any }> => {
+    try {
+      const res = await paymentApi.manageDiscount(userId, payload);
+      if (res.success) {
+        try {
+          const [updatedUsers, updatedActs] = await Promise.all([
+            userApi.getUsers(),
+            activityApi.getActivities(),
+          ]);
+          if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+          if (Array.isArray(updatedActs)) setActivities(updatedActs);
+        } catch {}
+        return { success: true, message: res.message, user: res.user };
+      }
+      return { success: false, message: res.message || 'Failed to update discount.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.manageDiscount]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to update discount.' };
     }
   };
 
@@ -781,7 +898,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     availableSeats: seats.filter((s) => s.status === 'available').length,
     occupiedSeats: seats.filter((s) => s.status === 'occupied').length,
     maintenanceSeats: seats.filter((s) => s.status === 'maintenance').length,
-    activePlans: plans.filter((p) => p.status === 'Active').length
+    activePlans: plans.filter((p) => p.status === 'Active').length,
+    totalFeesDue: users.reduce((sum, u) => sum + (Number(u.balanceDue) || 0), 0),
+    pendingDuesCount: users.filter((u) => (Number(u.balanceDue) || 0) > 0).length,
+    amountCollected: users.reduce((sum, u) => sum + (Number(u.paidAmount) || 0), 0),
   };
 
   return (
@@ -803,6 +923,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateSeatStatus,
         refreshFloors,
         refreshSeats,
+        refreshUsers,
         addFloor,
         editFloor,
         deleteFloor,
@@ -819,6 +940,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addPlan,
         editPlan,
         togglePlanStatus,
+        recordPayment,
+        manageDiscount,
         stats
       }}
     >

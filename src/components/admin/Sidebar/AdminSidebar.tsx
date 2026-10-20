@@ -8,6 +8,7 @@ import {
   LogOut, 
   ShieldCheck,
   Building2,
+  Receipt,
   X
 } from 'lucide-react';
 import { useLibrary } from '../../../context/LibraryContext';
@@ -27,6 +28,13 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ isOpen = false, onCl
       exact: true,
       icon: LayoutDashboard,
       badge: null
+    },
+    {
+      name: 'Fees Management',
+      path: '/admin/fees',
+      exact: false,
+      icon: Receipt,
+      badge: stats.pendingDuesCount > 0 ? `${stats.pendingDuesCount} Dues` : null
     },
     {
       name: 'Manage Users',

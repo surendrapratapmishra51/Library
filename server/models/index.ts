@@ -6,6 +6,7 @@ import Activity from './Activity.js';
 import Payment from './Payment.js';
 import Floor from './Floor.js';
 import SeatAllocation from './SeatAllocation.js';
+import fs from 'fs';
 import bcrypt from 'bcryptjs';
 
 // Define Associations
@@ -102,7 +103,11 @@ export const syncDatabase = async () => {
         await sequelize.query("ALTER TABLE users ADD COLUMN balance_due DECIMAL(10,2) DEFAULT 0");
       }
       if (!colNames.includes('payment_status')) {
-        await sequelize.query("ALTER TABLE users ADD COLUMN payment_status ENUM('Paid', 'Partial', 'Pending') DEFAULT 'Pending'");
+        await sequelize.query("ALTER TABLE users ADD COLUMN payment_status ENUM('Paid', 'Partial', 'Pending', 'Unpaid') DEFAULT 'Pending'");
+      } else {
+        try {
+          await sequelize.query("ALTER TABLE users MODIFY COLUMN payment_status ENUM('Paid', 'Partial', 'Pending', 'Unpaid') DEFAULT 'Pending'");
+        } catch (e) {}
       }
     } catch (e: any) {
       console.warn('[DB Migration Warning] users table check:', e.message);
@@ -199,6 +204,107 @@ export const syncDatabase = async () => {
       }
     } catch (e: any) {
       console.warn('[DB Migration Warning] activities table check:', e.message);
+    }
+
+    // Safe column check & migration for payments table
+    try {
+      const [payCols]: any = await sequelize.query('SHOW COLUMNS FROM payments');
+      const payColNames = payCols.map((c: any) => c.Field);
+      if (!payColNames.includes('transaction_id')) {
+        await sequelize.query("ALTER TABLE payments ADD COLUMN transaction_id VARCHAR(100) NULL");
+      }
+      if (!payColNames.includes('notes')) {
+        await sequelize.query("ALTER TABLE payments ADD COLUMN notes TEXT NULL");
+      }
+      if (!payColNames.includes('created_at')) {
+        await sequelize.query("ALTER TABLE payments ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+      }
+      if (!payColNames.includes('updated_at')) {
+        await sequelize.query("ALTER TABLE payments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+      }
+    } catch (e: any) {
+      console.warn('[DB Migration Warning] payments table check:', e.message);
+    }
+
+    // Ensure financial consistency for existing student records and payments
+    try {
+      const [students]: any = await sequelize.query(`
+        SELECT u.id, u.name, u.mobile, u.plan, u.plan_id, u.base_fee, u.discount, u.discount_reason, u.final_fee, u.paid_amount, u.balance_due, u.payment_status, u.joining_date, p.price as plan_price, p.name as plan_title
+        FROM users u
+        LEFT JOIN membership_plans p ON u.plan_id = p.id
+        WHERE u.role = 'student'
+      `);
+
+      for (const s of students) {
+        let bFee = Number(s.base_fee) || 0;
+        if (bFee === 0) {
+          bFee = Number(s.plan_price) || 1200;
+        }
+        const disc = Number(s.discount) || 0;
+        const fFee = Math.max(0, bFee - disc);
+
+        // Check payments in payments table
+        const [userPayments]: any = await sequelize.query(`
+          SELECT id, amount, payment_date, status
+          FROM payments
+          WHERE user_id = ? AND status = 'Completed'
+        `, { replacements: [s.id] });
+
+        let actualPaidFromPayments = userPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+
+        // If user has paid_amount in user record greater than existing payment records, create initial/balance payment record
+        if (actualPaidFromPayments < Number(s.paid_amount)) {
+          const diffAmt = Number(s.paid_amount) - actualPaidFromPayments;
+          const payDate = s.joining_date || new Date().toISOString().split('T')[0];
+          await sequelize.query(`
+            INSERT INTO payments (id, user_id, user_name, user_mobile, plan_name, amount, payment_method, payment_date, status, transaction_id, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'Cash', ?, 'Completed', ?, 'Initial membership enrollment fee payment', NOW(), NOW())
+          `, {
+            replacements: [
+              `pay-init-${s.id}`,
+              s.id,
+              s.name || 'Member',
+              s.mobile || 'N/A',
+              s.plan || s.plan_title || 'Membership Plan',
+              diffAmt,
+              payDate,
+              `TXN-INIT-${s.id}`
+            ]
+          });
+          actualPaidFromPayments += diffAmt;
+        }
+
+        const effectivePaid = Math.max(Number(s.paid_amount) || 0, actualPaidFromPayments);
+        const bDue = Math.max(0, fFee - effectivePaid);
+
+        let pStatus: string;
+        if (bDue === 0 && (fFee === 0 || effectivePaid > 0)) {
+          pStatus = 'Paid';
+        } else if (effectivePaid > 0 && bDue > 0) {
+          pStatus = 'Partial';
+        } else {
+          pStatus = 'Pending';
+        }
+
+        await sequelize.query(`
+          UPDATE users
+          SET base_fee = ?, final_fee = ?, paid_amount = ?, balance_due = ?, payment_status = ?
+          WHERE id = ?
+        `, { replacements: [bFee, fFee, effectivePaid, bDue, pStatus, s.id] });
+      }
+
+      // Dump diagnostic DB state to scratch folder
+      try {
+        const [allUsers]: any = await sequelize.query(`SELECT id, name, mobile, plan, plan_id, base_fee, discount, final_fee, paid_amount, balance_due, payment_status, joining_date FROM users WHERE role = 'student'`);
+        const [allPayments]: any = await sequelize.query(`SELECT id, user_id, user_name, amount, payment_method, payment_date, status FROM payments`);
+        const dumpPath = 'C:/Users/suren/.gemini/antigravity-ide/brain/f08ebc88-9bd8-4b27-adbb-0985a79098d3/scratch/db_state.json';
+        fs.mkdirSync('C:/Users/suren/.gemini/antigravity-ide/brain/f08ebc88-9bd8-4b27-adbb-0985a79098d3/scratch', { recursive: true });
+        fs.writeFileSync(dumpPath, JSON.stringify({ studentCount: allUsers.length, students: allUsers, paymentCount: allPayments.length, payments: allPayments }, null, 2));
+      } catch (dumpErr: any) {
+        console.warn('[DB State Dump]:', dumpErr.message);
+      }
+    } catch (e: any) {
+      console.warn('[DB Migration Warning] student fee sync:', e.message);
     }
 
     // Seed Initial Master Admin and Data

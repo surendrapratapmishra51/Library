@@ -77,12 +77,12 @@ export const RegistrationForm: React.FC = () => {
       setIsSubmitting(true);
       const res = await registerApplication(formData);
       setIsSubmitting(false);
-      setSuccessResponse(res.message);
-      // Automatically authenticate as demo student
-      login('student');
+      setSuccessResponse(
+        res.message || 'Your admission and desk reservation application has been forwarded to library administration.'
+      );
     } catch {
       setIsSubmitting(false);
-      setErrorMsg('Failed to process registration. Please try again.');
+      setErrorMsg('Failed to process admission request. Please try again or contact the library front desk.');
     }
   };
 
@@ -95,10 +95,10 @@ export const RegistrationForm: React.FC = () => {
 
         <div className="space-y-2">
           <h3 className="text-2xl font-bold text-slate-900 font-display">
-            Application Registered Successfully!
+            Admission Application Received!
           </h3>
           <p className="text-sm text-slate-600 leading-relaxed">
-            {successResponse}
+            Your admission request has been sent to library administration. Please visit the library reception or contact staff to verify your admission and receive your Student Portal login credentials.
           </p>
         </div>
 
@@ -119,7 +119,7 @@ export const RegistrationForm: React.FC = () => {
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Reserved Desk:</span>
+            <span className="text-slate-500">Requested Desk:</span>
             <span className="font-mono font-bold text-slate-900">
               {formData.preferredSeat ? `Seat ${formData.preferredSeat}` : 'Front Desk Assigned'}
             </span>
@@ -131,15 +131,21 @@ export const RegistrationForm: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-500">
-          A confirmation SMS & WhatsApp with your Biometric RFID Pass instructions will be sent to <strong>{formData.mobile}</strong>.
+          Our administrator will contact you at <strong>{formData.mobile}</strong> to confirm your slot allotment.
         </p>
 
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
           <Button
             variant="primary"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/login')}
           >
-            Go to Student Dashboard
+            Already Enrolled? Sign In
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => navigate('/')}
+          >
+            Return to Homepage
           </Button>
           <Button
             variant="outline"
@@ -159,7 +165,7 @@ export const RegistrationForm: React.FC = () => {
               });
             }}
           >
-            Submit Another Application
+            Submit Another Request
           </Button>
         </div>
       </div>
@@ -251,19 +257,36 @@ export const RegistrationForm: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 3: Address */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-          Residential Address / Hostel Name
-        </label>
-        <input
-          type="text"
-          name="address"
-          placeholder="Locality, sector, or hostel building"
-          value={formData.address}
-          onChange={handleChange}
-          className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
-        />
+      {/* Row 3: Address & Password */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+            Residential Address / Hostel Name
+          </label>
+          <input
+            type="text"
+            name="address"
+            placeholder="Locality, sector, or hostel building"
+            value={formData.address}
+            onChange={handleChange}
+            className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+            <span>Portal Password</span>
+            <span className="text-[10px] text-slate-500 font-normal">Default: student123</span>
+          </label>
+          <input
+            type="password"
+            name="password"
+            placeholder="Create password (min 6 characters)"
+            value={formData.password || ''}
+            onChange={handleChange}
+            className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
+          />
+        </div>
       </div>
 
       {/* Row 4: Plan & Preferred Seat */}

@@ -31,6 +31,26 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
+export interface RegisterPayload {
+  name: string;
+  mobile: string;
+  email?: string;
+  password: string;
+  role?: 'student' | 'admin';
+  adminPasscode?: string;
+  planId?: string;
+  preferredSeat?: string;
+  address?: string;
+  dob?: string;
+}
+
+export interface RegisterResponse {
+  success: boolean;
+  message: string;
+  token: string;
+  user: AuthUser;
+}
+
 export interface UserProfileResponse {
   id: string;
   name: string;
@@ -52,6 +72,13 @@ export const authApi = {
    */
   login: async (credentials: LoginCredentials): Promise<LoginResponse> => {
     return apiClient.post<LoginResponse>('/api/auth/login', credentials);
+  },
+
+  /**
+   * Register new student or admin account with database persistence.
+   */
+  register: async (payload: RegisterPayload): Promise<RegisterResponse> => {
+    return apiClient.post<RegisterResponse>('/api/auth/register', payload);
   },
 
   /**

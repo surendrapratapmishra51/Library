@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
 import { AdminSidebar } from '../../components/admin/Sidebar/AdminSidebar';
 import { Menu, ShieldCheck, UserCheck, Bell } from 'lucide-react';
 import { useLibrary } from '../../context/LibraryContext';
@@ -7,10 +7,16 @@ import { useLibrary } from '../../context/LibraryContext';
 export const AdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-  const { stats } = useLibrary();
+  const { stats, isAuthenticated, userRole } = useLibrary();
+
+  // Route Guard: Only authenticated admins can access the Admin Panel
+  if (!isAuthenticated || userRole !== 'admin') {
+    return <Navigate to="/login" replace />;
+  }
 
   // Section title based on route
   const getSectionTitle = () => {
+    if (location.pathname.includes('/fees')) return 'Fees Management';
     if (location.pathname.includes('/users')) return 'Manage Users';
     if (location.pathname.includes('/floors')) return 'Manage Floors';
     if (location.pathname.includes('/seats-plans')) return 'Manage Seats & Plans';
