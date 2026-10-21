@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { User, Seat, Activity, MembershipPlan, Payment, Floor, SeatAllocation } from '../models/index.js';
 import { calculateExpiryDate, isExpiryDateValid, isValidDateString, getTodayDateString } from '../utils/dateUtils.js';
+import { AuthRequest } from '../middleware/auth.js';
 
 export const getUsers = async (req: Request, res: Response) => {
   try {
@@ -64,6 +65,12 @@ export const createUser = async (req: Request, res: Response) => {
     const cleanName = name.trim();
     const cleanMobile = String(mobile).trim();
     const cleanEmail = email && typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
+    
+    // Server-side privilege escalation guard
+    const authReq = req as AuthRequest;
+    if (role === 'admin' && (!authReq.user || authReq.user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Privilege escalation rejected: Only an authorized administrator can create admin or staff accounts.' });
+    }
     const userRole: 'admin' | 'student' = role === 'admin' ? 'admin' : 'student';
 
     // Check duplicate mobile or email
@@ -305,6 +312,12 @@ export const updateUser = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const fields = req.body;
+    const authReq = req as AuthRequest;
+
+    // Prevent privilege escalation or role mutation by non-admins
+    if (fields.role && (!authReq.user || authReq.user.role !== 'admin')) {
+      delete fields.role;
+    }
 
     const user = await User.findByPk(id);
     if (!user) {

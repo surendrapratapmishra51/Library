@@ -157,13 +157,13 @@ export const register = async (req: Request, res: Response) => {
     const cleanEmail = email && typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
     const cleanRole: 'admin' | 'student' = role === 'admin' ? 'admin' : 'student';
 
-    // 2. Admin verification key if registering as staff/admin
+    // 2. Reject any attempt to register an admin account via public registration
     if (cleanRole === 'admin') {
-      const validAdminPasscodes = ['admin123', 'focusadmin', 'masteradmin', process.env.ADMIN_SECRET || 'admin123'];
-      if (!adminPasscode || !validAdminPasscodes.includes(adminPasscode.trim())) {
-        return res.status(403).json({ error: 'Invalid Administrator Security Key. Please provide the authorized admin passcode.' });
-      }
+      return res.status(403).json({
+        error: 'Administrator accounts cannot be created via public registration. Contact the library administration.'
+      });
     }
+
 
     // 3. Check duplicate mobile or email
     const duplicateConditions: any[] = [{ mobile: cleanMobile }];

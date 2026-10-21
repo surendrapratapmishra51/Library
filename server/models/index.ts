@@ -7,7 +7,6 @@ import Payment from './Payment.js';
 import Floor from './Floor.js';
 import SeatAllocation from './SeatAllocation.js';
 import AdmissionRequest from './AdmissionRequest.js';
-import fs from 'fs';
 import bcrypt from 'bcryptjs';
 
 // Define Associations
@@ -294,17 +293,6 @@ export const syncDatabase = async () => {
           SET base_fee = ?, final_fee = ?, paid_amount = ?, balance_due = ?, payment_status = ?
           WHERE id = ?
         `, { replacements: [bFee, fFee, effectivePaid, bDue, pStatus, s.id] });
-      }
-
-      // Dump diagnostic DB state to scratch folder
-      try {
-        const [allUsers]: any = await sequelize.query(`SELECT id, name, mobile, plan, plan_id, base_fee, discount, final_fee, paid_amount, balance_due, payment_status, joining_date FROM users WHERE role = 'student'`);
-        const [allPayments]: any = await sequelize.query(`SELECT id, user_id, user_name, amount, payment_method, payment_date, status FROM payments`);
-        const dumpPath = 'C:/Users/suren/.gemini/antigravity-ide/brain/f08ebc88-9bd8-4b27-adbb-0985a79098d3/scratch/db_state.json';
-        fs.mkdirSync('C:/Users/suren/.gemini/antigravity-ide/brain/f08ebc88-9bd8-4b27-adbb-0985a79098d3/scratch', { recursive: true });
-        fs.writeFileSync(dumpPath, JSON.stringify({ studentCount: allUsers.length, students: allUsers, paymentCount: allPayments.length, payments: allPayments }, null, 2));
-      } catch (dumpErr: any) {
-        console.warn('[DB State Dump]:', dumpErr.message);
       }
     } catch (e: any) {
       console.warn('[DB Migration Warning] student fee sync:', e.message);

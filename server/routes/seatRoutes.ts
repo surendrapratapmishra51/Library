@@ -10,17 +10,22 @@ import {
   releaseSeat,
   getAllocationHistory
 } from '../controllers/seatController.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Public: View floor/seat layout and availability statistics
 router.get('/stats', getSeatStats);
-router.get('/allocations/history', getAllocationHistory);
 router.get('/', getSeats);
-router.post('/bulk', bulkAddSeats);
-router.post('/transfer', transferSeat);
-router.post('/release', releaseSeat);
-router.post('/', addSeat);
-router.put('/:id', updateSeat);
-router.delete('/:number', deleteSeat);
+
+// Admin Only: Allocation history, seat transfers, releases, and seat management
+router.get('/allocations/history', authenticateToken, requireAdmin, getAllocationHistory);
+router.post('/bulk', authenticateToken, requireAdmin, bulkAddSeats);
+router.post('/transfer', authenticateToken, requireAdmin, transferSeat);
+router.post('/release', authenticateToken, requireAdmin, releaseSeat);
+router.post('/', authenticateToken, requireAdmin, addSeat);
+router.put('/:id', authenticateToken, requireAdmin, updateSeat);
+router.delete('/:number', authenticateToken, requireAdmin, deleteSeat);
 
 export default router;
+

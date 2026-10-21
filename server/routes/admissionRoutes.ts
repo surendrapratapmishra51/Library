@@ -7,11 +7,13 @@ import {
   rejectAdmissionRequest,
 } from '../controllers/admissionController.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { admissionRateLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
-// Public: Candidate submits admission application
-router.post('/', createAdmissionRequest);
+// Public: Candidate submits admission application (throttled against spam)
+router.post('/', admissionRateLimiter, createAdmissionRequest);
+
 
 // Protected: Admin views and manages admission requests
 router.get('/', authenticateToken, requireAdmin, getAdmissionRequests);

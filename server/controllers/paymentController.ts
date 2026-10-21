@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
-import fs from 'fs';
 import sequelize from '../config/database.js';
 import { Payment, User, Activity, MembershipPlan } from '../models/index.js';
 import { getTodayDateString, isValidDateString } from '../utils/dateUtils.js';
+import { AuthRequest } from '../middleware/auth.js';
 
 /**
  * GET /api/payments
@@ -111,6 +111,13 @@ export const getPayments = async (req: Request, res: Response) => {
 export const getUserPayments = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+    const authReq = req as AuthRequest;
+
+    // IDOR Protection: Students can only view their own payment transactions
+    if (authReq.user && authReq.user.role !== 'admin' && authReq.user.id !== userId) {
+      return res.status(403).json({ error: 'Access denied. You can only view your own payment records.' });
+    }
+
     const payments = await Payment.findAll({
       where: { user_id: userId },
       order: [['created_at', 'DESC']]
@@ -429,10 +436,6 @@ export const getFeesSummary = async (req: Request, res: Response) => {
       }
     };
 
-    try {
-      fs.writeFileSync('C:/Users/suren/.gemini/antigravity-ide/brain/f08ebc88-9bd8-4b27-adbb-0985a79098d3/scratch/last_summary.json', JSON.stringify(responsePayload, null, 2));
-    } catch (e) {}
-
     res.json(responsePayload);
   } catch (error: any) {
     console.error('[paymentController.getFeesSummary] Error:', error.message);
@@ -747,6 +750,12 @@ export const manageDiscount = async (req: Request, res: Response) => {
 export const getUserStatement = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+    const authReq = req as AuthRequest;
+
+    // IDOR Protection: Students can only view their own fee statements
+    if (authReq.user && authReq.user.role !== 'admin' && authReq.user.id !== userId) {
+      return res.status(403).json({ error: 'Access denied. You can only view your own fee statement.' });
+    }
 
     const user = await User.findByPk(userId, {
       attributes: { exclude: ['password'] }
