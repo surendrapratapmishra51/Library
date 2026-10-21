@@ -1,0 +1,509 @@
+import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import { Op } from 'sequelize';
+import { User, Seat, Activity, MembershipPlan, Payment, Floor, SeatAllocation } from '../models/index.js';
+import { calculateExpiryDate, isExpiryDateValid, isValidDateString, getTodayDateString } from '../utils/dateUtils.js';
+import { AuthRequest } from '../middleware/auth.js';
+
+export const getUsers = async (req: Request, res: Response) => {
+  try {
+    const { role } = req.query;
+    const whereClause: any = {};
+    if (role && role !== 'all') {
+      whereClause.role = role;
+    }
+    const users = await User.findAll({
+      where: whereClause,
+      attributes: { exclude: ['password'] },
+      order: [['created_at', 'DESC']]
+    });
+
+    const formatted = users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      mobile: u.mobile,
+      email: u.email,
+      role: u.role,
+      address: u.address,
+      plan: u.plan,
+      planId: u.plan_id,
+      seat: u.seat,
+      joiningDate: u.joining_date,
+      expiryDate: u.expiry_date,
+      status: u.status,
+      previousSeat: u.previous_seat,
+      discontinuedDate: u.discontinued_date,
+      baseFee: Number(u.base_fee) || 0,
+      discount: Number(u.discount) || 0,
+      discountReason: u.discount_reason || '',
+      finalFee: Number(u.final_fee) || 0,
+      paidAmount: Number(u.paid_amount) || 0,
+      balanceDue: Number(u.balance_due) || 0,
+      paymentStatus: u.payment_status || 'Pending',
+      history: typeof u.history === 'string' ? JSON.parse(u.history) : u.history || [],
+      created_at: u.created_at
+    }));
+
+    res.json(formatted);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const createUser = async (req: Request, res: Response) => {
+  try {
+    const {
+      name, mobile, email, password, address, plan, planId, seat,
+      joiningDate, expiryDate, status, role,
+      baseFee, discount, discountReason, paidAmount, paymentMethod
+    } = req.body;
+
+    if (!name || !name.trim() || !mobile || !String(mobile).trim()) {
+      return res.status(400).json({ error: 'Full Name and Mobile number are required.' });
+    }
+
+    const cleanName = name.trim();
+    const cleanMobile = String(mobile).trim();
+    const cleanEmail = email && typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
+    
+    // Server-side privilege escalation guard
+    const authReq = req as AuthRequest;
+    if (role === 'admin' && (!authReq.user || authReq.user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Privilege escalation rejected: Only an authorized administrator can create admin or staff accounts.' });
+    }
+    const userRole: 'admin' | 'student' = role === 'admin' ? 'admin' : 'student';
+
+    // Check duplicate mobile or email
+    const duplicateConditions: any[] = [{ mobile: cleanMobile }];
+    if (cleanEmail) {
+      duplicateConditions.push({ email: cleanEmail });
+    }
+
+    const duplicate = await User.findOne({
+      where: {
+        [Op.or]: duplicateConditions
+      }
+    });
+
+    if (duplicate) {
+      if (duplicate.mobile === cleanMobile) {
+        return res.status(409).json({ error: `An account with mobile number ${cleanMobile} already exists.` });
+      }
+      if (cleanEmail && duplicate.email === cleanEmail) {
+        return res.status(409).json({ error: `An account with email ${cleanEmail} already exists.` });
+      }
+      return res.status(409).json({ error: 'An account with this mobile number or email already exists.' });
+    }
+
+    // Verify seat availability (only if assigning a seat)
+    const cleanSeat = userRole === 'admin' ? 'None' : (seat && seat !== 'None' ? seat.trim().toUpperCase() : 'None');
+    let seatRecord: Seat | null = null;
+    if (cleanSeat !== 'None') {
+      seatRecord = await Seat.findOne({ where: { number: cleanSeat } });
+      if (!seatRecord) {
+        return res.status(400).json({ error: `Seat ${cleanSeat} does not exist in library layout.` });
+      }
+      if (seatRecord.status !== 'available') {
+        return res.status(400).json({ error: `Seat ${cleanSeat} is currently ${seatRecord.status} (assigned to ${seatRecord.occupied_by || 'another member'}). Please choose an available seat.` });
+      }
+      if (seatRecord.floor_id) {
+        const floorRec = await Floor.findByPk(seatRecord.floor_id);
+        if (floorRec && floorRec.status === 'Inactive') {
+          return res.status(400).json({ error: `Cannot assign seat on deactivated floor "${floorRec.name}". Please select a seat on an active floor.` });
+        }
+      }
+    }
+
+    const defaultPass = userRole === 'admin' ? 'admin123' : 'student123';
+    const rawPassword = password && String(password).trim() ? String(password).trim() : defaultPass;
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+    const id = userRole === 'admin' ? `usr-admin-${Date.now()}` : `usr-${Date.now()}`;
+
+    // Validate joining date
+    const cleanJoiningDate = joiningDate && isValidDateString(joiningDate)
+      ? String(joiningDate).trim()
+      : getTodayDateString();
+
+    // Validate or calculate expiry date
+    let cleanExpiryDate: string;
+    if (userRole === 'admin') {
+      cleanExpiryDate = '2099-12-31';
+    } else if (expiryDate && typeof expiryDate === 'string' && expiryDate.trim()) {
+      const trimmedExp = expiryDate.trim();
+      if (!isValidDateString(trimmedExp)) {
+        return res.status(400).json({ error: 'Invalid Membership Expiry Date format (expected YYYY-MM-DD).' });
+      }
+      if (!isExpiryDateValid(cleanJoiningDate, trimmedExp)) {
+        return res.status(400).json({ error: 'Membership Expiry Date must be later than Joining Date.' });
+      }
+      cleanExpiryDate = trimmedExp;
+    } else {
+      const planRecord = planId ? await MembershipPlan.findByPk(planId) : null;
+      cleanExpiryDate = calculateExpiryDate(
+        cleanJoiningDate,
+        planRecord?.duration,
+        planRecord?.duration_unit,
+        planId || plan
+      );
+    }
+
+    // Fee Calculation
+    let cleanBaseFee = userRole === 'admin' ? 0 : Number(baseFee);
+    if (userRole !== 'admin' && (isNaN(cleanBaseFee) || cleanBaseFee < 0)) {
+      const pRecord = planId ? await MembershipPlan.findByPk(planId) : null;
+      cleanBaseFee = pRecord ? Number(pRecord.price) : 0;
+    }
+
+    const cleanDiscount = userRole === 'admin' ? 0 : Math.max(0, Number(discount) || 0);
+    if (cleanDiscount > cleanBaseFee) {
+      return res.status(400).json({ error: 'Discount amount cannot be greater than the Standard Plan Fee.' });
+    }
+
+    const cleanFinalFee = userRole === 'admin' ? 0 : Math.max(0, cleanBaseFee - cleanDiscount);
+    const cleanPaidAmount = userRole === 'admin' ? 0 : Math.max(0, Number(paidAmount) || 0);
+
+    if (cleanPaidAmount > cleanFinalFee) {
+      return res.status(400).json({ error: 'Amount received cannot exceed the Final Payable Amount.' });
+    }
+
+    const cleanBalanceDue = userRole === 'admin' ? 0 : Math.max(0, cleanFinalFee - cleanPaidAmount);
+
+    let cleanPaymentStatus: 'Paid' | 'Partial' | 'Pending';
+    if (userRole === 'admin' || (cleanBalanceDue === 0 && (cleanFinalFee === 0 || cleanPaidAmount > 0))) {
+      cleanPaymentStatus = 'Paid';
+    } else if (cleanPaidAmount > 0 && cleanBalanceDue > 0) {
+      cleanPaymentStatus = 'Partial';
+    } else {
+      cleanPaymentStatus = 'Pending';
+    }
+
+    const cleanDiscountReason = cleanDiscount > 0 && discountReason && String(discountReason).trim()
+      ? String(discountReason).trim()
+      : null;
+
+    const history = [
+      userRole === 'admin'
+        ? `Appointed as Library Staff / Admin on ${cleanJoiningDate}`
+        : `Enrolled by Admin on ${cleanJoiningDate} (Assigned Seat: ${cleanSeat}, Plan: ${plan || 'Plan'}, Fee: ₹${cleanFinalFee}, Paid: ₹${cleanPaidAmount}, Due: ₹${cleanBalanceDue})`
+    ];
+
+    const newUser = await User.create({
+      id,
+      name: cleanName,
+      mobile: cleanMobile,
+      email: cleanEmail,
+      password: hashedPassword,
+      role: userRole,
+      address: address ? address.trim() : '',
+      plan: userRole === 'admin' ? 'Staff Administrator' : (plan || 'Monthly Plan'),
+      plan_id: userRole === 'admin' ? 'staff' : (planId || 'monthly'),
+      seat: cleanSeat,
+      joining_date: cleanJoiningDate,
+      expiry_date: cleanExpiryDate,
+      status: status || 'Active',
+      base_fee: cleanBaseFee,
+      discount: cleanDiscount,
+      discount_reason: cleanDiscountReason,
+      final_fee: cleanFinalFee,
+      paid_amount: cleanPaidAmount,
+      balance_due: cleanBalanceDue,
+      payment_status: cleanPaymentStatus,
+      history
+    });
+
+    // Mark seat as occupied and record allocation
+    if (cleanSeat !== 'None' && seatRecord) {
+      await Seat.update(
+        { status: 'occupied', occupied_by: cleanName, assigned_until: cleanExpiryDate },
+        { where: { number: cleanSeat } }
+      );
+
+      try {
+        await SeatAllocation.create({
+          id: `alloc-${Date.now()}`,
+          user_id: id,
+          user_name: cleanName,
+          user_identifier: cleanMobile,
+          seat_id: seatRecord.id,
+          seat_number: cleanSeat,
+          floor_id: seatRecord.floor_id,
+          floor_name: seatRecord.floor_name || 'No Floor',
+          start_date: cleanJoiningDate,
+          end_date: cleanExpiryDate,
+          status: 'Active',
+          action_type: 'Enrolled',
+          notes: `Enrolled for ${plan || 'Plan'}`
+        });
+      } catch (allocErr: any) {
+        console.warn('[SeatAllocation Warning]:', allocErr.message);
+      }
+    }
+
+    // Requirement 8: Do not create a successful payment transaction when the received amount is zero
+    if (cleanPaidAmount > 0) {
+      try {
+        await Payment.create({
+          id: `pay-${Date.now()}`,
+          user_id: id,
+          user_name: cleanName,
+          user_mobile: cleanMobile,
+          plan_name: plan || 'Membership Plan',
+          amount: cleanPaidAmount,
+          payment_method: paymentMethod || 'Cash',
+          payment_date: cleanJoiningDate,
+          status: 'Completed',
+          notes: `Initial fee collection for ${plan || 'Membership Plan'}${cleanDiscount > 0 ? ` (Discount: ₹${cleanDiscount}${cleanDiscountReason ? ` - ${cleanDiscountReason}` : ''})` : ''}`
+        });
+      } catch (payErr: any) {
+        console.warn('[Payment Record Warning]:', payErr.message);
+      }
+    }
+
+    // Log activity (resilient logging)
+    try {
+      await Activity.create({
+        id: `act-${Date.now()}`,
+        type: 'member_added',
+        title: 'New Member Registered',
+        timestamp: 'Just now',
+        details: `${cleanName} enrolled for ${plan || 'Plan'} · Seat ${cleanSeat} · Paid: ₹${cleanPaidAmount}${cleanBalanceDue > 0 ? ` (Due: ₹${cleanBalanceDue})` : ''}`,
+        meta: { userName: cleanName, seatNumber: cleanSeat, expiryDate: cleanExpiryDate, paidAmount: cleanPaidAmount, balanceDue: cleanBalanceDue }
+      });
+    } catch (actErr: any) {
+      console.warn('[Activity Logging Warning]:', actErr.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Account created for ${cleanName} with password "${rawPassword}".`,
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        mobile: newUser.mobile,
+        email: newUser.email,
+        role: newUser.role,
+        address: newUser.address,
+        plan: newUser.plan,
+        planId: newUser.plan_id,
+        seat: newUser.seat,
+        joiningDate: newUser.joining_date,
+        expiryDate: newUser.expiry_date,
+        status: newUser.status,
+        previousSeat: newUser.previous_seat,
+        discontinuedDate: newUser.discontinued_date,
+        baseFee: Number(newUser.base_fee) || 0,
+        discount: Number(newUser.discount) || 0,
+        discountReason: newUser.discount_reason || '',
+        finalFee: Number(newUser.final_fee) || 0,
+        paidAmount: Number(newUser.paid_amount) || 0,
+        balanceDue: Number(newUser.balance_due) || 0,
+        paymentStatus: newUser.payment_status || 'Pending',
+        history: typeof newUser.history === 'string' ? JSON.parse(newUser.history) : newUser.history || [],
+        created_at: newUser.created_at
+      }
+    });
+  } catch (error: any) {
+    console.error('[User Error] Failed to create member:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateUser = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const fields = req.body;
+    const authReq = req as AuthRequest;
+
+    // Prevent privilege escalation or role mutation by non-admins
+    if (fields.role && (!authReq.user || authReq.user.role !== 'admin')) {
+      delete fields.role;
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: 'Member not found.' });
+    }
+
+    // Validate dates if updating joining or expiry dates
+    const effJoiningDate = fields.joiningDate ? String(fields.joiningDate).trim() : user.joining_date;
+    const effExpiryDate = fields.expiryDate ? String(fields.expiryDate).trim() : user.expiry_date;
+
+    if (fields.joiningDate && !isValidDateString(effJoiningDate)) {
+      return res.status(400).json({ error: 'Invalid Joining Date format (expected YYYY-MM-DD).' });
+    }
+    if (fields.expiryDate && !isValidDateString(effExpiryDate)) {
+      return res.status(400).json({ error: 'Invalid Membership Expiry Date format (expected YYYY-MM-DD).' });
+    }
+    if (effJoiningDate && effExpiryDate && !isExpiryDateValid(effJoiningDate, effExpiryDate)) {
+      return res.status(400).json({ error: 'Membership Expiry Date must be later than Joining Date.' });
+    }
+
+    // Reallocate seat if changed
+    if (fields.seat && fields.seat !== user.seat) {
+      const oldSeat = user.seat;
+      const newSeatNum = fields.seat.trim().toUpperCase();
+      const todayStr = getTodayDateString();
+
+      // Free old seat and close previous active allocation
+      if (oldSeat && oldSeat !== 'None') {
+        await Seat.update({ status: 'available', occupied_by: null, assigned_until: null }, { where: { number: oldSeat } });
+        await SeatAllocation.update(
+          { status: 'Transferred', release_date: todayStr, notes: `Transferred to Seat ${newSeatNum}` },
+          { where: { user_id: user.id, seat_number: oldSeat, status: 'Active' } }
+        );
+      }
+
+      // Occupy new seat and create new active allocation
+      if (newSeatNum !== 'None') {
+        const targetSeat = await Seat.findOne({ where: { number: newSeatNum } });
+        if (targetSeat) {
+          if (targetSeat.floor_id) {
+            const floorRec = await Floor.findByPk(targetSeat.floor_id);
+            if (floorRec && floorRec.status === 'Inactive') {
+              return res.status(400).json({ error: `Cannot assign seat on deactivated floor "${floorRec.name}".` });
+            }
+          }
+          await targetSeat.update({
+            status: 'occupied',
+            occupied_by: fields.name || user.name,
+            assigned_until: effExpiryDate
+          });
+
+          await SeatAllocation.create({
+            id: `alloc-${Date.now()}`,
+            user_id: user.id,
+            user_name: fields.name || user.name,
+            user_identifier: user.mobile,
+            seat_id: targetSeat.id,
+            seat_number: newSeatNum,
+            floor_id: targetSeat.floor_id,
+            floor_name: targetSeat.floor_name || 'No Floor',
+            start_date: todayStr,
+            end_date: effExpiryDate,
+            status: 'Active',
+            action_type: 'Transferred',
+            notes: `Transferred from Seat ${oldSeat || 'None'}`
+          });
+        }
+      }
+    } else if (fields.expiryDate && user.seat && user.seat !== 'None') {
+      // Update assigned_until if expiryDate was updated
+      await Seat.update({ assigned_until: effExpiryDate }, { where: { number: user.seat } });
+      await SeatAllocation.update({ end_date: effExpiryDate }, { where: { user_id: user.id, seat_number: user.seat, status: 'Active' } });
+    }
+
+    // Handle discontinuation
+    if (fields.status === 'Discontinued' && user.status !== 'Discontinued') {
+      const todayStr = getTodayDateString();
+      if (user.seat && user.seat !== 'None') {
+        await Seat.update({ status: 'available', occupied_by: null, assigned_until: null }, { where: { number: user.seat } });
+        await SeatAllocation.update(
+          { status: 'Released', release_date: todayStr, notes: 'Member discontinued' },
+          { where: { user_id: user.id, seat_number: user.seat, status: 'Active' } }
+        );
+      }
+      fields.previous_seat = user.seat;
+      fields.seat = 'None';
+      fields.discontinued_date = todayStr;
+    }
+
+    // Password hash if updating password
+    if (fields.password && fields.password.trim()) {
+      fields.password = await bcrypt.hash(fields.password.trim(), 10);
+    } else {
+      delete fields.password;
+    }
+
+    let updatedHistory = Array.isArray(user.history) ? user.history : [];
+    if (fields.historyLog) {
+      updatedHistory = [fields.historyLog, ...updatedHistory];
+    }
+    fields.history = updatedHistory;
+
+    // Handle Fee & Payment updates if provided
+    let newBaseFee = fields.baseFee !== undefined ? Number(fields.baseFee) : user.base_fee;
+    let newDiscount = fields.discount !== undefined ? Number(fields.discount) : user.discount;
+    let newDiscountReason = fields.discountReason !== undefined ? fields.discountReason : user.discount_reason;
+    let newFinalFee = fields.finalFee !== undefined ? Number(fields.finalFee) : (Number(newBaseFee || 0) - Number(newDiscount || 0));
+    let newPaidAmount = fields.paidAmount !== undefined ? Number(fields.paidAmount) : Number(user.paid_amount || 0);
+
+    // If an additional payment is being collected for outstanding balance
+    if (fields.additionalPayment && Number(fields.additionalPayment) > 0) {
+      const addPay = Number(fields.additionalPayment);
+      newPaidAmount = (Number(user.paid_amount) || 0) + addPay;
+      try {
+        await Payment.create({
+          id: `pay-${Date.now()}`,
+          user_id: user.id,
+          user_name: user.name,
+          user_mobile: user.mobile,
+          plan_name: user.plan || 'Membership Plan',
+          amount: addPay,
+          payment_method: fields.paymentMethod || 'Cash',
+          payment_date: getTodayDateString(),
+          status: 'Completed',
+          notes: fields.paymentNotes || `Balance fee collection for ${user.name}`
+        });
+      } catch (payErr: any) {
+        console.warn('[Additional Payment Warning]:', payErr.message);
+      }
+    }
+
+    const newBalanceDue = Math.max(0, (Number(newFinalFee) || 0) - (Number(newPaidAmount) || 0));
+    let newPaymentStatus: 'Paid' | 'Partial' | 'Pending';
+    if (newBalanceDue === 0 && ((Number(newFinalFee) || 0) === 0 || (Number(newPaidAmount) || 0) > 0)) {
+      newPaymentStatus = 'Paid';
+    } else if ((Number(newPaidAmount) || 0) > 0 && newBalanceDue > 0) {
+      newPaymentStatus = 'Partial';
+    } else {
+      newPaymentStatus = 'Pending';
+    }
+
+    await user.update({
+      name: fields.name ?? user.name,
+      mobile: fields.mobile ?? user.mobile,
+      email: fields.email ?? user.email,
+      address: fields.address ?? user.address,
+      password: fields.password ?? user.password,
+      plan: fields.plan ?? user.plan,
+      plan_id: fields.planId ?? user.plan_id,
+      seat: fields.seat ?? user.seat,
+      joining_date: fields.joiningDate ?? user.joining_date,
+      expiry_date: effExpiryDate,
+      status: fields.status ?? user.status,
+      previous_seat: fields.previous_seat ?? user.previous_seat,
+      discontinued_date: fields.discontinued_date ?? user.discontinued_date,
+      base_fee: newBaseFee,
+      discount: newDiscount,
+      discount_reason: newDiscountReason,
+      final_fee: newFinalFee,
+      paid_amount: newPaidAmount,
+      balance_due: newBalanceDue,
+      payment_status: newPaymentStatus,
+      history: updatedHistory
+    });
+
+    res.json({ success: true, message: 'Member details updated.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteUser = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findByPk(id);
+
+    if (user && user.seat && user.seat !== 'None') {
+      await Seat.update({ status: 'available', occupied_by: null, assigned_until: null }, { where: { number: user.seat } });
+    }
+
+    if (user) {
+      await user.destroy();
+    }
+
+    res.json({ success: true, message: 'Member deleted.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};

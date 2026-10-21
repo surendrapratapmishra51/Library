@@ -82,13 +82,13 @@ export const Navbar: React.FC = () => {
                   to="/login"
                   className="px-3.5 py-1.5 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors whitespace-nowrap"
                 >
-                  Login
+                  Member / Staff Login
                 </Link>
                 <Link
                   to="/join"
                   className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm whitespace-nowrap"
                 >
-                  Join Now
+                  Book Seat / Admission
                 </Link>
               </>
             )}

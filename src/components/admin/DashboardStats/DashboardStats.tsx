@@ -9,13 +9,14 @@ import {
   UserMinus, 
   ArrowRightLeft, 
   PlusCircle,
-  ExternalLink
+  ExternalLink,
+  UserPlus
 } from 'lucide-react';
 import { useLibrary } from '../../../context/LibraryContext';
 import { Link } from 'react-router-dom';
 
 export const DashboardStats: React.FC = () => {
-  const { stats, users, activities } = useLibrary();
+  const { stats, users, activities, pendingAdmissionsCount } = useLibrary();
 
   // Overview calculations
   const recentlyAdded = users
@@ -76,7 +77,33 @@ export const DashboardStats: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Pending Admissions Alert Banner */}
+      {pendingAdmissionsCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-200/80 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+              <UserPlus className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {pendingAdmissionsCount} Pending Admission {pendingAdmissionsCount === 1 ? 'Request' : 'Requests'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                New students have requested seats from the public website and are awaiting approval.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/admin/admissions"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 shadow-xs transition-colors shrink-0"
+          >
+            <span>Review Requests</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
+
       {/* 6 Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {statCards.map((card) => {
@@ -132,23 +159,27 @@ export const DashboardStats: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              {recentlyAdded.map((user) => (
-                <div
-                  key={user.id}
-                  className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <p className="font-bold text-slate-900">{user.name}</p>
-                    <p className="text-[11px] text-slate-500">{user.mobile} · {user.plan}</p>
+              {recentlyAdded.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No active members enrolled yet.</p>
+              ) : (
+                recentlyAdded.map((user) => (
+                  <div
+                    key={user.id}
+                    className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-900">{user.name}</p>
+                      <p className="text-[11px] text-slate-500">{user.mobile} · {user.plan}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {user.seat}
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{user.joiningDate}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      {user.seat}
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{user.joiningDate}</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -225,20 +256,24 @@ export const DashboardStats: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              {seatChangeActivities.map((act) => (
-                <div
-                  key={act.id}
-                  className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 text-xs space-y-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-900">{act.title}</span>
-                    <span className="text-[10px] text-slate-400">{act.timestamp}</span>
+              {seatChangeActivities.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No seat assignment logs yet.</p>
+              ) : (
+                seatChangeActivities.map((act) => (
+                  <div
+                    key={act.id}
+                    className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 text-xs space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-900">{act.title}</span>
+                      <span className="text-[10px] text-slate-400">{act.timestamp}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      {act.details}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-snug">
-                    {act.details}
-                  </p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 

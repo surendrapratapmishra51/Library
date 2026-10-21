@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
 import { AdminSidebar } from '../../components/admin/Sidebar/AdminSidebar';
 import { Menu, ShieldCheck, UserCheck, Bell } from 'lucide-react';
 import { useLibrary } from '../../context/LibraryContext';
@@ -7,11 +7,19 @@ import { useLibrary } from '../../context/LibraryContext';
 export const AdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-  const { stats } = useLibrary();
+  const { stats, isAuthenticated, userRole } = useLibrary();
+
+  // Route Guard: Only authenticated admins can access the Admin Panel
+  if (!isAuthenticated || userRole !== 'admin') {
+    return <Navigate to="/login" replace />;
+  }
 
   // Section title based on route
   const getSectionTitle = () => {
+    if (location.pathname.includes('/admissions')) return 'Admission Requests';
+    if (location.pathname.includes('/fees')) return 'Fees Management';
     if (location.pathname.includes('/users')) return 'Manage Users';
+    if (location.pathname.includes('/floors')) return 'Manage Floors';
     if (location.pathname.includes('/seats-plans')) return 'Manage Seats & Plans';
     return 'Admin Dashboard';
   };
@@ -56,16 +64,6 @@ export const AdminLayout: React.FC = () => {
               <span className="font-semibold text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
                 {stats.activeMembers} Active Members
               </span>
-            </div>
-
-            <div className="flex items-center gap-2 pl-2 sm:border-l border-slate-200">
-              <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
-                A
-              </div>
-              <div className="hidden md:block text-left text-xs">
-                <span className="font-bold text-slate-900 block leading-tight">Admin User</span>
-                <span className="text-[10px] text-slate-400">Super Administrator</span>
-              </div>
             </div>
           </div>
         </header>

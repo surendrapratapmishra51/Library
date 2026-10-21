@@ -1,35 +1,64 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Seat, StudentProfile, RegistrationFormData, AdminUser, MembershipPlan, ActivityItem, SeatStatus } from '../types';
+import { Seat, StudentProfile, RegistrationFormData, AdminUser, MembershipPlan, ActivityItem, SeatStatus, AdmissionRequest, AdmissionStats } from '../types';
 import { mockSeats } from '../data/mockSeats';
 import { mockDefaultStudent } from '../data/mockStudents';
 import { mockInitialUsers } from '../data/mockUsers';
 import { mockPlans } from '../data/mockPlans';
+import { Floor, FloorStats } from '../types';
+import { userApi, seatApi, planApi, activityApi, authApi, floorApi, paymentApi, admissionApi, BulkAddSeatsResponse } from '../services';
+import { calculateExpiryDate, getTodayDateString } from '../utils/dateUtils';
 
 interface LibraryContextType {
   seats: Seat[];
+  floors: Floor[];
   users: AdminUser[];
   plans: MembershipPlan[];
   activities: ActivityItem[];
   student: StudentProfile;
   isAuthenticated: boolean;
   userRole: 'student' | 'admin' | 'guest';
+  currentUser: any;
   selectedSeatForBooking: Seat | null;
   setSelectedSeatForBooking: (seat: Seat | null) => void;
-  login: (role: 'student' | 'admin') => void;
+  login: (role: 'student' | 'admin', profileData?: any, token?: string) => void;
   logout: () => void;
   registerApplication: (formData: RegistrationFormData) => Promise<{ success: boolean; message: string }>;
   updateSeatStatus: (seatId: string, status: 'available' | 'occupied' | 'maintenance', occupant?: string) => void;
+
+  // Admission Requests
+  admissionRequests: AdmissionRequest[];
+  admissionStats: AdmissionStats;
+  pendingAdmissionsCount: number;
+  refreshAdmissionRequests: (params?: any) => Promise<void>;
+  acceptAdmissionRequest: (id: string, payload?: any) => Promise<{ success: boolean; message: string; seatUnavailable?: boolean }>;
+  rejectAdmissionRequest: (id: string, payload?: any) => Promise<{ success: boolean; message: string }>;
   
-  // Admin Operations
-  addUser: (userData: Omit<AdminUser, 'id' | 'history'>) => { success: boolean; message: string };
-  editUser: (userId: string, userData: Partial<AdminUser>) => { success: boolean; message: string };
-  discontinueUser: (userId: string) => { success: boolean; message: string };
-  changeUserSeat: (userId: string, newSeatNumber: string) => { success: boolean; message: string };
-  addSeat: (seatData: { number: string; floor: 1 | 2; section: 'A' | 'B' | 'C' | 'D'; status: SeatStatus }) => { success: boolean; message: string };
+  // Floor Management
+  refreshFloors: () => Promise<void>;
+  addFloor: (floorData: { name: string; description?: string; status?: 'Active' | 'Inactive'; floorNumber?: number | null; sortOrder?: number }) => Promise<{ success: boolean; message: string; floor?: Floor }>;
+  editFloor: (floorId: string, floorData: { name?: string; description?: string; status?: 'Active' | 'Inactive'; floorNumber?: number | null; sortOrder?: number }) => Promise<{ success: boolean; message: string; warning?: string | null; floor?: Floor }>;
+  deleteFloor: (floorId: string) => Promise<{ success: boolean; message: string }>;
+  toggleFloorStatus: (floorId: string) => Promise<{ success: boolean; message: string; warning?: string | null }>;
+
+  // Seat Management
+  refreshSeats: () => Promise<void>;
+  addSeat: (seatData: { number: string; floorId?: string | null; description?: string; status?: SeatStatus }) => Promise<{ success: boolean; message: string; seat?: Seat }>;
+  bulkAddSeats: (payload: { count: number; prefix?: string; startNumber: number; floorId?: string | null; description?: string }) => Promise<BulkAddSeatsResponse>;
+  transferSeat: (userId: string, newSeatNumber: string) => Promise<{ success: boolean; message: string; seat?: string }>;
+  releaseSeat: (payload: { userId?: string; seatNumber?: string }) => Promise<{ success: boolean; message: string }>;
   removeSeat: (seatNumber: string) => { success: boolean; message: string };
+
+  // Admin Operations
+  addUser: (userData: Omit<AdminUser, 'id' | 'history'>) => Promise<{ success: boolean; message: string; user?: AdminUser }>;
+  editUser: (userId: string, userData: Partial<AdminUser>) => Promise<{ success: boolean; message: string }>;
+  discontinueUser: (userId: string) => Promise<{ success: boolean; message: string }>;
+  changeUserSeat: (userId: string, newSeatNumber: string) => Promise<{ success: boolean; message: string }>;
   addPlan: (planData: Omit<MembershipPlan, 'id'>) => { success: boolean; message: string };
   editPlan: (planId: string, planData: Partial<MembershipPlan>) => { success: boolean; message: string };
   togglePlanStatus: (planId: string) => { success: boolean; message: string };
+  refreshUsers: () => Promise<void>;
+  recordPayment: (payload: any) => Promise<{ success: boolean; message: string; payment?: any }>;
+  manageDiscount: (userId: string, payload: any) => Promise<{ success: boolean; message: string; user?: any }>;
 
   stats: {
     totalMembers: number;
@@ -40,43 +69,13 @@ interface LibraryContextType {
     occupiedSeats: number;
     maintenanceSeats: number;
     activePlans: number;
+    totalFeesDue: number;
+    pendingDuesCount: number;
+    amountCollected: number;
   };
 }
 
-const initialActivities: ActivityItem[] = [
-  {
-    id: 'act-1',
-    type: 'member_added',
-    title: 'New Member Registered',
-    timestamp: 'Today, 10:30 AM',
-    details: 'Vikramaditya Sharma enrolled for Quarterly Plan',
-    meta: { userName: 'Vikramaditya Sharma', seatNumber: 'A04' }
-  },
-  {
-    id: 'act-2',
-    type: 'seat_changed',
-    title: 'Seat Allocation Updated',
-    timestamp: 'Yesterday, 04:15 PM',
-    details: 'Aakriti Sen moved from Seat B01 to Seat B04 (Prime Window)',
-    meta: { userName: 'Aakriti Sen', oldSeat: 'B01', newSeat: 'B04' }
-  },
-  {
-    id: 'act-3',
-    type: 'member_discontinued',
-    title: 'Membership Discontinued',
-    timestamp: '28 Sep 2026',
-    details: 'Rahul Verma membership completed. Seat B02 released to Available.',
-    meta: { userName: 'Rahul Verma', seatNumber: 'B02' }
-  },
-  {
-    id: 'act-4',
-    type: 'member_added',
-    title: 'New Member Registered',
-    timestamp: '24 Sep 2026',
-    details: 'Pooja Sharma enrolled for Monthly Plan',
-    meta: { userName: 'Pooja Sharma', seatNumber: 'A01' }
-  }
-];
+const initialActivities: ActivityItem[] = [];
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
@@ -84,12 +83,38 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Sync seats with active users on initial load
   const [seats, setSeats] = useState<Seat[]>(() => {
     const saved = localStorage.getItem('fz_library_seats');
-    return saved ? JSON.parse(saved) : mockSeats;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // If saved seats contain mock occupant names, purge old cache
+        if (Array.isArray(parsed) && parsed.some((s: any) => s.occupiedBy === 'Aman Verma' || s.occupiedBy === 'Vikramaditya Sharma')) {
+          localStorage.removeItem('fz_library_seats');
+          return mockSeats;
+        }
+        return parsed;
+      } catch (e) {
+        return mockSeats;
+      }
+    }
+    return mockSeats;
   });
 
   const [users, setUsers] = useState<AdminUser[]>(() => {
     const saved = localStorage.getItem('fz_library_users');
-    return saved ? JSON.parse(saved) : mockInitialUsers;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // If saved users contain old mock student "usr-101", purge old cache
+        if (Array.isArray(parsed) && parsed.some((u: any) => u.id === 'usr-101' || u.name === 'Vikramaditya Sharma')) {
+          localStorage.removeItem('fz_library_users');
+          return [];
+        }
+        return parsed;
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
   });
 
   const [plans, setPlans] = useState<MembershipPlan[]>(() => {
@@ -99,12 +124,36 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [activities, setActivities] = useState<ActivityItem[]>(() => {
     const saved = localStorage.getItem('fz_library_activities');
-    return saved ? JSON.parse(saved) : initialActivities;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((a: any) => a.id === 'act-1' || a.meta?.userName === 'Vikramaditya Sharma')) {
+          localStorage.removeItem('fz_library_activities');
+          return [];
+        }
+        return parsed;
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
   });
 
   const [student, setStudent] = useState<StudentProfile>(() => {
     const saved = localStorage.getItem('fz_library_student');
-    return saved ? JSON.parse(saved) : mockDefaultStudent;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.id === 'std-1042' || parsed.id === 'usr-101' || parsed.name === 'Vikramaditya Sharma') {
+          localStorage.removeItem('fz_library_student');
+          return mockDefaultStudent;
+        }
+        return parsed;
+      } catch (e) {
+        return mockDefaultStudent;
+      }
+    }
+    return mockDefaultStudent;
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -116,9 +165,139 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return (saved as 'student' | 'admin') || 'guest';
   });
 
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    const saved = localStorage.getItem('fz_library_current_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
   const [selectedSeatForBooking, setSelectedSeatForBooking] = useState<Seat | null>(null);
 
-  // Sync to local storage
+  const [floors, setFloors] = useState<Floor[]>([]);
+  const [admissionRequests, setAdmissionRequests] = useState<AdmissionRequest[]>([]);
+  const [admissionStats, setAdmissionStats] = useState<AdmissionStats>({
+    pendingCount: 0,
+    acceptedCount: 0,
+    rejectedCount: 0,
+    totalCount: 0
+  });
+
+  const refreshAdmissionRequests = async (params?: any) => {
+    try {
+      const res = await admissionApi.getAdmissionRequests(params);
+      if (res && res.success) {
+        const reqs = Array.isArray(res.requests) ? res.requests : [];
+        setAdmissionRequests(reqs);
+        const s: AdmissionStats = res.stats || (res as any).counts || {
+          pendingCount: reqs.filter((r: any) => r.status === 'Pending').length,
+          acceptedCount: reqs.filter((r: any) => r.status === 'Accepted').length,
+          rejectedCount: reqs.filter((r: any) => r.status === 'Rejected').length,
+          totalCount: reqs.length,
+        };
+        setAdmissionStats(s);
+      }
+    } catch (err: any) {
+      console.info('[admissionApi.getAdmissionRequests]', err.message);
+    }
+  };
+
+  const pendingAdmissionsCount = (admissionStats && typeof admissionStats.pendingCount === 'number' && admissionStats.pendingCount > 0)
+    ? admissionStats.pendingCount
+    : (admissionRequests || []).filter((r) => r.status === 'Pending').length;
+
+  const refreshFloors = async () => {
+    try {
+      const res = await floorApi.getFloors();
+      if (res && Array.isArray(res.floors)) {
+        setFloors(res.floors);
+      }
+    } catch (err: any) {
+      console.info('[floorApi.getFloors]', err.message);
+    }
+  };
+
+  const refreshSeats = async () => {
+    try {
+      const res = await seatApi.getSeats();
+      if (Array.isArray(res)) {
+        setSeats(res);
+      }
+    } catch (err: any) {
+      console.info('[seatApi.getSeats]', err.message);
+    }
+  };
+
+  const refreshUsers = async () => {
+    try {
+      const res = await userApi.getUsers();
+      if (Array.isArray(res)) {
+        setUsers(res);
+      }
+    } catch (err: any) {
+      console.info('[userApi.getUsers]', err.message);
+    }
+  };
+
+  // Fetch from MySQL Backend on mount using centralized services
+  useEffect(() => {
+    const fetchBackendData = async () => {
+      try {
+        const [seatsResult, usersResult, plansResult, actResult, floorsResult, admissionsResult] = await Promise.allSettled([
+          seatApi.getSeats(),
+          userApi.getUsers(),
+          planApi.getPlans(),
+          activityApi.getActivities(),
+          floorApi.getFloors(),
+          admissionApi.getAdmissionRequests(),
+        ]);
+
+        if (seatsResult.status === 'fulfilled' && Array.isArray(seatsResult.value)) {
+          setSeats(seatsResult.value);
+        }
+        if (usersResult.status === 'fulfilled' && Array.isArray(usersResult.value)) {
+          setUsers(usersResult.value);
+        }
+        if (plansResult.status === 'fulfilled' && Array.isArray(plansResult.value) && plansResult.value.length > 0) {
+          setPlans(plansResult.value);
+        }
+        if (actResult.status === 'fulfilled' && Array.isArray(actResult.value)) {
+          setActivities(actResult.value);
+        }
+        if (floorsResult.status === 'fulfilled' && floorsResult.value && Array.isArray(floorsResult.value.floors)) {
+          setFloors(floorsResult.value.floors);
+        }
+        if (admissionsResult.status === 'fulfilled' && admissionsResult.value && admissionsResult.value.success) {
+          setAdmissionRequests(admissionsResult.value.requests || []);
+          if (admissionsResult.value.stats) {
+            setAdmissionStats(admissionsResult.value.stats);
+          }
+        }
+
+        // Sync current user profile if session token exists
+        const token = localStorage.getItem('fz_library_token');
+        if (token) {
+          authApi.getMe().then((me) => {
+            if (me) {
+              setCurrentUser(me);
+              localStorage.setItem('fz_library_current_user', JSON.stringify(me));
+            }
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.info('Backend API running in local fallback mode.');
+      }
+    };
+
+    fetchBackendData();
+  }, []);
+
+  // Sync to local storage for offline / quick reload resilience
   useEffect(() => {
     localStorage.setItem('fz_library_seats', JSON.stringify(seats));
   }, [seats]);
@@ -139,97 +318,176 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('fz_library_student', JSON.stringify(student));
   }, [student]);
 
-  const login = (role: 'student' | 'admin') => {
+  // Synchronize student profile with fresh database user record
+  useEffect(() => {
+    if (userRole === 'student' && student?.id && users.length > 0) {
+      const match = users.find((u) => u.id === student.id || (student.mobile && u.mobile === student.mobile));
+      if (match) {
+        setStudent((prev) => ({
+          ...prev,
+          id: match.id,
+          name: match.name,
+          email: match.email || prev.email,
+          mobile: match.mobile,
+          address: match.address || prev.address || '',
+          assignedSeat: match.seat || 'None',
+          planName: match.plan || prev.planName,
+          planId: match.planId || prev.planId,
+          startDate: match.joiningDate || prev.startDate,
+          expiryDate: match.expiryDate || prev.expiryDate,
+          membershipStatus: match.status === 'Active' ? 'Active' : 'Expired',
+          baseFee: Number(match.baseFee) || 0,
+          discount: Number(match.discount) || 0,
+          discountReason: match.discountReason || '',
+          finalFee: Number(match.finalFee) || 0,
+          paidAmount: Number(match.paidAmount) || 0,
+          balanceDue: Number(match.balanceDue) || 0,
+          paymentStatus: match.paymentStatus || 'Pending',
+        }));
+      }
+    }
+  }, [users, userRole, student?.id, student?.mobile]);
+
+  const login = (role: 'student' | 'admin', profileData?: any, token?: string) => {
     setIsAuthenticated(true);
     setUserRole(role);
     localStorage.setItem('fz_library_auth', 'true');
     localStorage.setItem('fz_library_role', role);
+    if (token) {
+      localStorage.setItem('fz_library_token', token);
+    }
+    if (profileData) {
+      setCurrentUser(profileData);
+      localStorage.setItem('fz_library_current_user', JSON.stringify(profileData));
+    }
+    if (role === 'admin') {
+      refreshAdmissionRequests().catch(() => {});
+    }
+    if (profileData && role === 'student') {
+      setStudent((prev) => ({
+        ...prev,
+        id: profileData.id || prev.id,
+        name: profileData.name || prev.name,
+        email: profileData.email || prev.email,
+        mobile: profileData.mobile || prev.mobile,
+        address: profileData.address || prev.address || '',
+        assignedSeat: profileData.seat || prev.assignedSeat,
+        planName: profileData.plan || prev.planName,
+        planId: profileData.planId || prev.planId,
+        startDate: profileData.joiningDate || prev.startDate,
+        expiryDate: profileData.expiryDate || prev.expiryDate,
+        membershipStatus: profileData.status === 'Active' ? 'Active' : 'Expired',
+        baseFee: profileData.baseFee !== undefined ? Number(profileData.baseFee) : prev.baseFee,
+        discount: profileData.discount !== undefined ? Number(profileData.discount) : prev.discount,
+        discountReason: profileData.discountReason || prev.discountReason,
+        finalFee: profileData.finalFee !== undefined ? Number(profileData.finalFee) : prev.finalFee,
+        paidAmount: profileData.paidAmount !== undefined ? Number(profileData.paidAmount) : prev.paidAmount,
+        balanceDue: profileData.balanceDue !== undefined ? Number(profileData.balanceDue) : prev.balanceDue,
+        paymentStatus: profileData.paymentStatus || prev.paymentStatus,
+      }));
+    }
   };
 
   const logout = () => {
+    authApi.logout();
+    localStorage.removeItem('fz_library_current_user');
+    setCurrentUser(null);
     setIsAuthenticated(false);
     setUserRole('guest');
-    localStorage.removeItem('fz_library_auth');
-    localStorage.removeItem('fz_library_role');
   };
 
   const registerApplication = async (formData: RegistrationFormData): Promise<{ success: boolean; message: string }> => {
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const selectedSeatNo = formData.preferredSeat ? formData.preferredSeat.toUpperCase().trim() : 'A04';
+    const chosenPlan = plans.find((p) => p.id === formData.planId);
+    const startDate = formData.startDate || getTodayDateString();
 
-    const selectedSeatNo = formData.preferredSeat ? formData.preferredSeat.toUpperCase() : 'A04';
-    
-    // Check if seat exists and is available
-    if (formData.preferredSeat) {
-      const seatObj = seats.find((s) => s.number.toUpperCase() === selectedSeatNo);
-      if (seatObj && seatObj.status !== 'available') {
+    try {
+      const res = await admissionApi.submitAdmissionRequest({
+        name: formData.fullName,
+        mobile: formData.mobile,
+        email: formData.email,
+        dob: formData.dob,
+        address: formData.address,
+        planId: formData.planId,
+        planName: chosenPlan?.name,
+        preferredSeat: selectedSeatNo,
+        startDate: startDate,
+        shiftTiming: formData.shiftTiming,
+        notes: formData.notes
+      });
+
+      if (res.success) {
+        refreshAdmissionRequests().catch(() => {});
+        return {
+          success: true,
+          message: res.message || 'Your admission request has been submitted successfully and is awaiting admin approval.'
+        };
+      } else {
         return {
           success: false,
-          message: `Seat ${selectedSeatNo} is currently ${seatObj.status}. Please choose another available seat.`
+          message: res.message || 'Unable to submit admission request. Please try again.'
         };
       }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to submit admission request.';
+      return {
+        success: false,
+        message: errMsg
+      };
     }
+  };
 
-    // Update seat to occupied
-    setSeats((prev) =>
-      prev.map((s) => {
-        if (s.number.toUpperCase() === selectedSeatNo) {
-          return {
-            ...s,
-            status: 'occupied',
-            occupiedBy: formData.fullName,
-            assignedUntil: '30 Dec 2026'
-          };
-        }
-        return s;
-      })
-    );
+  const acceptAdmissionRequest = async (
+    id: string,
+    payload?: any
+  ): Promise<{ success: boolean; message: string; seatUnavailable?: boolean }> => {
+    try {
+      const res = await admissionApi.acceptAdmissionRequest(id, payload);
+      if (res.success) {
+        await Promise.allSettled([
+          refreshSeats(),
+          refreshUsers(),
+          refreshAdmissionRequests(),
+          refreshFloors()
+        ]);
+        return { success: true, message: res.message || 'Admission request accepted successfully.' };
+      } else {
+        return {
+          success: false,
+          message: res.message || 'Failed to accept admission request.',
+          seatUnavailable: res.seatUnavailable
+        };
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to accept admission request.';
+      const isUnavailable = err.response?.data?.seatUnavailable || false;
+      return {
+        success: false,
+        message: errMsg,
+        seatUnavailable: isUnavailable
+      };
+    }
+  };
 
-    // Create user record in Admin Users list
-    const newUser: AdminUser = {
-      id: `usr-${Date.now()}`,
-      name: formData.fullName,
-      mobile: formData.mobile,
-      email: formData.email,
-      address: formData.address,
-      plan: plans.find((p) => p.id === formData.planId)?.name || 'Custom Plan',
-      planId: formData.planId,
-      seat: selectedSeatNo,
-      joiningDate: formData.startDate || new Date().toISOString().split('T')[0],
-      expiryDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      status: 'Active',
-      history: [`Joined on ${formData.startDate || 'today'} with reserved Seat ${selectedSeatNo}`]
-    };
-
-    setUsers((prev) => [newUser, ...prev]);
-
-    // Log Activity
-    const newActivity: ActivityItem = {
-      id: `act-${Date.now()}`,
-      type: 'member_added',
-      title: 'New Member Registered',
-      timestamp: 'Just now',
-      details: `${formData.fullName} enrolled (${newUser.plan}) · Seat ${selectedSeatNo}`,
-      meta: { userName: formData.fullName, seatNumber: selectedSeatNo }
-    };
-    setActivities((prev) => [newActivity, ...prev]);
-
-    // Update student state for demonstration
-    setStudent((prev) => ({
-      ...prev,
-      name: formData.fullName,
-      email: formData.email,
-      mobile: formData.mobile,
-      dob: formData.dob,
-      address: formData.address,
-      assignedSeat: selectedSeatNo,
-      membershipStatus: 'Active',
-      startDate: formData.startDate || '03 Oct 2026'
-    }));
-
-    return {
-      success: true,
-      message: `Application received successfully! Your seat reservation for Seat ${selectedSeatNo} is confirmed.`
-    };
+  const rejectAdmissionRequest = async (
+    id: string,
+    payload?: any
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await admissionApi.rejectAdmissionRequest(id, payload);
+      if (res.success) {
+        await refreshAdmissionRequests();
+        return { success: true, message: res.message || 'Admission request rejected.' };
+      } else {
+        return { success: false, message: res.message || 'Failed to reject admission request.' };
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to reject admission request.';
+      return {
+        success: false,
+        message: errMsg
+      };
+    }
   };
 
   const updateSeatStatus = (seatId: string, status: SeatStatus, occupant?: string) => {
@@ -245,296 +503,378 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return s;
       })
     );
+
+    // Sync to backend via seatApi
+    seatApi.updateSeat(seatId, {
+      status,
+      occupiedBy: status === 'occupied' ? occupant || 'Enrolled Student' : null,
+    }).catch((err) => console.info('[seatApi.updateSeat]', err.message));
   };
 
-  // Admin Add User
-  const addUser = (userData: Omit<AdminUser, 'id' | 'history'>): { success: boolean; message: string } => {
-    // Business rule: Seat must be available if assigned
-    if (userData.seat && userData.seat !== 'None' && userData.status === 'Active') {
-      const targetSeat = seats.find((s) => s.number.toUpperCase() === userData.seat.toUpperCase());
+  // Admin Add User (Persists directly to database via userApi, then updates cache & UI)
+  const addUser = async (userData: Omit<AdminUser, 'id' | 'history'>): Promise<{ success: boolean; message: string; user?: AdminUser }> => {
+    // 1. Client-side validation: Seat must be available if assigned
+    const selectedSeatNo = userData.seat && userData.seat !== 'None' ? userData.seat.trim().toUpperCase() : 'None';
+    if (selectedSeatNo !== 'None' && userData.status === 'Active') {
+      const targetSeat = seats.find((s) => s.number.toUpperCase() === selectedSeatNo);
       if (!targetSeat) {
-        return { success: false, message: `Seat ${userData.seat} does not exist in library.` };
+        return { success: false, message: `Seat ${userData.seat} does not exist in library layout.` };
       }
       if (targetSeat.status !== 'available') {
         return { success: false, message: `Seat ${userData.seat} is already ${targetSeat.status} (occupied by ${targetSeat.occupiedBy || 'another student'}).` };
       }
     }
 
-    const newId = `usr-${Date.now()}`;
-    const newUser: AdminUser = {
-      ...userData,
-      id: newId,
-      history: [
-        `Created by Admin on ${new Date().toLocaleDateString('en-GB')}` +
-          (userData.seat && userData.seat !== 'None' ? ` (Assigned Seat ${userData.seat})` : '')
-      ]
-    };
+    try {
+      // 2. Make actual POST API call to persist user in backend database
+      const response = await userApi.createUser({
+        name: userData.name.trim(),
+        mobile: userData.mobile.trim(),
+        email: userData.email && userData.email.trim() ? userData.email.trim() : undefined,
+        password: userData.password && userData.password.trim() ? userData.password.trim() : undefined,
+        address: userData.address ? userData.address.trim() : '',
+        plan: userData.plan,
+        planId: userData.planId,
+        seat: selectedSeatNo,
+        joiningDate: userData.joiningDate,
+        expiryDate: userData.expiryDate,
+        status: 'Active',
+        role: userData.role || 'student',
+        baseFee: userData.baseFee,
+        discount: userData.discount,
+        discountReason: userData.discountReason,
+        finalFee: userData.finalFee,
+        paidAmount: userData.paidAmount,
+        balanceDue: userData.balanceDue,
+        paymentMethod: (userData as any).paymentMethod,
+      });
 
-    // If seat was assigned, mark seat as occupied
-    if (userData.seat && userData.seat !== 'None' && userData.status === 'Active') {
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === userData.seat.toUpperCase()
-            ? { ...s, status: 'occupied', occupiedBy: userData.name }
-            : s
-        )
-      );
+      if (!response.success || !response.user) {
+        return { success: false, message: response.message || 'Failed to create user in database.' };
+      }
+
+      // 3. Immediately refresh users, seats, and activities directly from the database to guarantee persistence and consistency
+      try {
+        const [updatedUsers, updatedSeats, updatedActivities] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+          activityApi.getActivities(),
+        ]);
+
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+        if (Array.isArray(updatedActivities)) setActivities(updatedActivities);
+      } catch {
+        // Fallback: If immediate re-fetch fails, append the created user returned by server
+        setUsers((prev) => [response.user, ...prev.filter((u) => u.id !== response.user.id)]);
+      }
+
+      return {
+        success: true,
+        message: response.message || `Member ${userData.name} enrolled and saved to database successfully.`,
+        user: response.user,
+      };
+    } catch (err: any) {
+      console.error('[LibraryContext.addUser] Database user creation failed:', err);
+      const errorMessage =
+        err?.data?.error ||
+        err?.message ||
+        'Failed to save member to database. Please check database connection and try again.';
+      return { success: false, message: errorMessage };
     }
-
-    setUsers((prev) => [newUser, ...prev]);
-
-    setActivities((prev) => [
-      {
-        id: `act-${Date.now()}`,
-        type: 'member_added',
-        title: 'New Member Added',
-        timestamp: 'Just now',
-        details: `${userData.name} added by Admin · Seat ${userData.seat || 'Unassigned'}`,
-        meta: { userName: userData.name, seatNumber: userData.seat }
-      },
-      ...prev
-    ]);
-
-    return { success: true, message: `Member ${userData.name} added successfully.` };
   };
 
   // Admin Edit User
-  const editUser = (userId: string, updatedData: Partial<AdminUser>): { success: boolean; message: string } => {
-    const existingUser = users.find((u) => u.id === userId);
-    if (!existingUser) {
-      return { success: false, message: 'User not found.' };
-    }
+  const editUser = async (userId: string, updatedData: Partial<AdminUser>): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await userApi.updateUser(userId, {
+        name: updatedData.name,
+        mobile: updatedData.mobile,
+        email: updatedData.email,
+        password: updatedData.password,
+        address: updatedData.address,
+        plan: updatedData.plan,
+        planId: updatedData.planId,
+        seat: updatedData.seat,
+        joiningDate: updatedData.joiningDate,
+        expiryDate: updatedData.expiryDate,
+        status: updatedData.status,
+        baseFee: updatedData.baseFee,
+        discount: updatedData.discount,
+        discountReason: updatedData.discountReason,
+        finalFee: updatedData.finalFee,
+        paidAmount: updatedData.paidAmount,
+        balanceDue: updatedData.balanceDue,
+      });
 
-    // Check if seat changed
-    const oldSeat = existingUser.seat;
-    const newSeat = updatedData.seat;
-
-    if (newSeat && newSeat !== oldSeat && newSeat !== 'None' && updatedData.status !== 'Discontinued') {
-      const seatObj = seats.find((s) => s.number.toUpperCase() === newSeat.toUpperCase());
-      if (seatObj && seatObj.status !== 'available') {
-        return {
-          success: false,
-          message: `Cannot assign seat ${newSeat}. It is already ${seatObj.status}.`
-        };
+      if (!res.success) {
+        return { success: false, message: res.message || 'Failed to update member in database.' };
       }
 
-      // Free old seat if valid
-      if (oldSeat && oldSeat !== 'None') {
-        setSeats((prev) =>
-          prev.map((s) =>
-            s.number.toUpperCase() === oldSeat.toUpperCase()
-              ? { ...s, status: 'available', occupiedBy: undefined }
-              : s
-          )
-        );
-      }
+      // Refresh fresh records from DB
+      try {
+        const [updatedUsers, updatedSeats] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+        ]);
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+      } catch {}
 
-      // Claim new seat
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === newSeat.toUpperCase()
-            ? { ...s, status: 'occupied', occupiedBy: updatedData.name || existingUser.name }
-            : s
-        )
-      );
+      return { success: true, message: 'Member details updated successfully in database.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.editUser]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to update member.' };
     }
-
-    // If updated to Discontinued
-    if (updatedData.status === 'Discontinued' && existingUser.status === 'Active') {
-      if (oldSeat && oldSeat !== 'None') {
-        setSeats((prev) =>
-          prev.map((s) =>
-            s.number.toUpperCase() === oldSeat.toUpperCase()
-              ? { ...s, status: 'available', occupiedBy: undefined }
-              : s
-          )
-        );
-      }
-      updatedData.previousSeat = oldSeat;
-      updatedData.seat = 'None';
-      updatedData.discontinuedDate = new Date().toISOString().split('T')[0];
-    }
-
-    const updatedHistory = [
-      ...(existingUser.history || []),
-      `Profile modified by Admin on ${new Date().toLocaleDateString('en-GB')}`
-    ];
-
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, ...updatedData, history: updatedHistory } : u))
-    );
-
-    return { success: true, message: 'Member details updated successfully.' };
   };
 
   // Discontinue User (Business Rule #2, #6)
-  const discontinueUser = (userId: string): { success: boolean; message: string } => {
-    const targetUser = users.find((u) => u.id === userId);
-    if (!targetUser) {
-      return { success: false, message: 'Member not found.' };
+  const discontinueUser = async (userId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await userApi.discontinueUser(userId);
+      if (!res.success) {
+        return { success: false, message: res.message || 'Failed to discontinue member.' };
+      }
+
+      // Refresh fresh records from DB
+      try {
+        const [updatedUsers, updatedSeats, updatedActivities] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+          activityApi.getActivities(),
+        ]);
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+        if (Array.isArray(updatedActivities)) setActivities(updatedActivities);
+      } catch {}
+
+      return { success: true, message: 'Member discontinued and seat released successfully.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.discontinueUser]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to discontinue member.' };
     }
-
-    const releasedSeat = targetUser.seat;
-
-    // Release assigned seat
-    if (releasedSeat && releasedSeat !== 'None') {
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === releasedSeat.toUpperCase()
-            ? { ...s, status: 'available', occupiedBy: undefined }
-            : s
-        )
-      );
-    }
-
-    const todayDate = new Date().toLocaleDateString('en-GB');
-
-    // Update user status
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              status: 'Discontinued',
-              previousSeat: releasedSeat,
-              seat: 'None',
-              discontinuedDate: new Date().toISOString().split('T')[0],
-              history: [
-                ...(u.history || []),
-                `Discontinued membership on ${todayDate}. Seat ${releasedSeat !== 'None' ? releasedSeat : 'N/A'} released to Available pool.`
-              ]
-            }
-          : u
-      )
-    );
-
-    // Record activity
-    setActivities((prev) => [
-      {
-        id: `act-${Date.now()}`,
-        type: 'member_discontinued',
-        title: 'Member Discontinued',
-        timestamp: 'Just now',
-        details: `${targetUser.name} discontinued. Seat ${releasedSeat !== 'None' ? releasedSeat : 'N/A'} released.`,
-        meta: { userName: targetUser.name, seatNumber: releasedSeat }
-      },
-      ...prev
-    ]);
-
-    return {
-      success: true,
-      message: `Member ${targetUser.name} discontinued. Seat ${releasedSeat !== 'None' ? releasedSeat : ''} is now available.`
-    };
   };
 
   // Change Student Seat (Business Rule #3)
-  const changeUserSeat = (userId: string, newSeatNumber: string): { success: boolean; message: string } => {
-    const targetUser = users.find((u) => u.id === userId);
-    if (!targetUser) {
-      return { success: false, message: 'Member not found.' };
+  const changeUserSeat = async (userId: string, newSeatNumber: string): Promise<{ success: boolean; message: string }> => {
+    const cleanNewSeat = newSeatNumber.trim().toUpperCase();
+    try {
+      const res = await userApi.changeUserSeat(userId, cleanNewSeat);
+      if (!res.success) {
+        return { success: false, message: res.message || 'Failed to change seat in database.' };
+      }
+
+      // Refresh fresh records from DB
+      try {
+        const [updatedUsers, updatedSeats, updatedActivities] = await Promise.all([
+          userApi.getUsers(),
+          seatApi.getSeats(),
+          activityApi.getActivities(),
+        ]);
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        if (Array.isArray(updatedSeats)) setSeats(updatedSeats);
+        if (Array.isArray(updatedActivities)) setActivities(updatedActivities);
+      } catch {}
+
+      return { success: true, message: `Seat successfully changed to ${cleanNewSeat}.` };
+    } catch (err: any) {
+      console.error('[LibraryContext.changeUserSeat]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to change seat.' };
     }
+  };
 
-    const cleanNewSeat = newSeatNumber.toUpperCase();
-    const newSeatObj = seats.find((s) => s.number.toUpperCase() === cleanNewSeat);
-    if (!newSeatObj) {
-      return { success: false, message: `Seat ${cleanNewSeat} does not exist.` };
+  // Record Payment
+  const recordPayment = async (payload: any): Promise<{ success: boolean; message: string; payment?: any }> => {
+    try {
+      const res = await paymentApi.recordPayment(payload);
+      if (res.success) {
+        // Refresh users and activities
+        try {
+          const [updatedUsers, updatedActs] = await Promise.all([
+            userApi.getUsers(),
+            activityApi.getActivities(),
+          ]);
+          if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+          if (Array.isArray(updatedActs)) setActivities(updatedActs);
+        } catch {}
+        return { success: true, message: res.message, payment: res.payment };
+      }
+      return { success: false, message: res.message || 'Failed to record payment.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.recordPayment]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to record payment.' };
     }
+  };
 
-    if (newSeatObj.status !== 'available') {
-      return {
-        success: false,
-        message: `Seat ${cleanNewSeat} cannot be assigned because it is ${newSeatObj.status}.`
-      };
+  // Manage Discount
+  const manageDiscount = async (userId: string, payload: any): Promise<{ success: boolean; message: string; user?: any }> => {
+    try {
+      const res = await paymentApi.manageDiscount(userId, payload);
+      if (res.success) {
+        try {
+          const [updatedUsers, updatedActs] = await Promise.all([
+            userApi.getUsers(),
+            activityApi.getActivities(),
+          ]);
+          if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+          if (Array.isArray(updatedActs)) setActivities(updatedActs);
+        } catch {}
+        return { success: true, message: res.message, user: res.user };
+      }
+      return { success: false, message: res.message || 'Failed to update discount.' };
+    } catch (err: any) {
+      console.error('[LibraryContext.manageDiscount]', err);
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to update discount.' };
     }
+  };
 
-    const oldSeatNumber = targetUser.seat;
-
-    // Release old seat
-    if (oldSeatNumber && oldSeatNumber !== 'None') {
-      setSeats((prev) =>
-        prev.map((s) =>
-          s.number.toUpperCase() === oldSeatNumber.toUpperCase()
-            ? { ...s, status: 'available', occupiedBy: undefined }
-            : s
-        )
-      );
+  // Floor Management Implementations
+  const addFloor = async (floorData: {
+    name: string;
+    description?: string;
+    status?: 'Active' | 'Inactive';
+    floorNumber?: number | null;
+    sortOrder?: number;
+  }): Promise<{ success: boolean; message: string; floor?: Floor }> => {
+    try {
+      const res = await floorApi.createFloor(floorData);
+      if (res.success && res.floor) {
+        setFloors((prev) => [...prev, res.floor!]);
+        await refreshFloors();
+        return { success: true, message: res.message, floor: res.floor };
+      }
+      return { success: false, message: res.message || 'Failed to create floor.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to create floor.' };
     }
+  };
 
-    // Occupy new seat
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.number.toUpperCase() === cleanNewSeat
-          ? { ...s, status: 'occupied', occupiedBy: targetUser.name }
-          : s
-      )
-    );
+  const editFloor = async (
+    floorId: string,
+    floorData: { name?: string; description?: string; status?: 'Active' | 'Inactive'; floorNumber?: number | null; sortOrder?: number }
+  ): Promise<{ success: boolean; message: string; warning?: string | null; floor?: Floor }> => {
+    try {
+      const res = await floorApi.updateFloor(floorId, floorData);
+      if (res.success && res.floor) {
+        setFloors((prev) => prev.map((f) => (f.id === floorId ? res.floor! : f)));
+        await Promise.all([refreshFloors(), refreshSeats()]);
+        return { success: true, message: res.message, warning: res.warning, floor: res.floor };
+      }
+      return { success: false, message: res.message || 'Failed to update floor.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to update floor.' };
+    }
+  };
 
-    const todayDate = new Date().toLocaleDateString('en-GB');
+  const deleteFloor = async (floorId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await floorApi.deleteFloor(floorId);
+      if (res.success) {
+        setFloors((prev) => prev.filter((f) => f.id !== floorId));
+        return { success: true, message: res.message };
+      }
+      return { success: false, message: res.message || 'Failed to remove floor.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to remove floor.' };
+    }
+  };
 
-    // Update user record
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              seat: cleanNewSeat,
-              history: [
-                ...(u.history || []),
-                `Seat changed from ${oldSeatNumber !== 'None' ? oldSeatNumber : 'Unassigned'} to ${cleanNewSeat} on ${todayDate}`
-              ]
-            }
-          : u
-      )
-    );
-
-    // Record activity
-    setActivities((prev) => [
-      {
-        id: `act-${Date.now()}`,
-        type: 'seat_changed',
-        title: 'Seat Reassigned',
-        timestamp: 'Just now',
-        details: `${targetUser.name} moved from ${oldSeatNumber} to ${cleanNewSeat}`,
-        meta: { userName: targetUser.name, oldSeat: oldSeatNumber, newSeat: cleanNewSeat }
-      },
-      ...prev
-    ]);
-
-    return {
-      success: true,
-      message: `Seat successfully changed from ${oldSeatNumber} to ${cleanNewSeat} for ${targetUser.name}.`
-    };
+  const toggleFloorStatus = async (floorId: string): Promise<{ success: boolean; message: string; warning?: string | null }> => {
+    const current = floors.find((f) => f.id === floorId);
+    if (!current) return { success: false, message: 'Floor not found.' };
+    const nextStatus = current.status === 'Active' ? 'Inactive' : 'Active';
+    return editFloor(floorId, { status: nextStatus });
   };
 
   // Add Seat
-  const addSeat = (seatData: {
+  const addSeat = async (seatData: {
     number: string;
-    floor: 1 | 2;
-    section: 'A' | 'B' | 'C' | 'D';
-    status: SeatStatus;
-  }): { success: boolean; message: string } => {
+    floorId?: string | null;
+    description?: string;
+    status?: SeatStatus;
+  }): Promise<{ success: boolean; message: string; seat?: Seat }> => {
     const cleanNumber = seatData.number.trim().toUpperCase();
     if (!cleanNumber) {
       return { success: false, message: 'Please enter a valid seat number.' };
     }
 
-    const exists = seats.some((s) => s.number.toUpperCase() === cleanNumber);
-    if (exists) {
-      return { success: false, message: `Seat ${cleanNumber} already exists in the library layout.` };
+    try {
+      const res = await seatApi.addSeat({
+        number: cleanNumber,
+        floorId: seatData.floorId,
+        description: seatData.description,
+        status: seatData.status || 'available',
+      });
+
+      if (res.success && res.seat) {
+        setSeats((prev) => [...prev, res.seat!]);
+        await Promise.all([refreshSeats(), refreshFloors()]);
+        return { success: true, message: res.message, seat: res.seat };
+      }
+      return { success: false, message: res.message || 'Failed to add seat.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Failed to create seat.' };
     }
+  };
 
-    const newSeatObj: Seat = {
-      id: `seat-${cleanNumber.toLowerCase()}`,
-      number: cleanNumber,
-      floor: seatData.floor,
-      section: seatData.section,
-      status: seatData.status,
-      hasPowerOutlet: true,
-      hasDeskLamp: true
-    };
+  // Bulk Add Seats
+  const bulkAddSeats = async (payload: {
+    count: number;
+    prefix?: string;
+    startNumber: number;
+    floorId?: string | null;
+    description?: string;
+  }): Promise<BulkAddSeatsResponse> => {
+    try {
+      const res = await seatApi.bulkAddSeats(payload);
+      if (res.success) {
+        await Promise.all([refreshSeats(), refreshFloors()]);
+      }
+      return res;
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.data?.error || err?.message || 'Bulk creation failed.',
+        requestedCount: payload.count,
+        createdCount: 0,
+        skippedCount: payload.count,
+        createdSeats: [],
+        skippedSeats: []
+      };
+    }
+  };
 
-    setSeats((prev) => [...prev, newSeatObj]);
-    return { success: true, message: `Seat ${cleanNumber} added successfully to Floor ${seatData.floor}, Section ${seatData.section}.` };
+  // Seat Transfer
+  const transferSeat = async (userId: string, newSeatNumber: string): Promise<{ success: boolean; message: string; seat?: string }> => {
+    try {
+      const res = await seatApi.transferSeat({ userId, newSeatNumber });
+      if (res.success) {
+        await Promise.all([refreshSeats(), refreshFloors()]);
+        // Refresh users
+        const updatedUsers = await userApi.getUsers();
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        return { success: true, message: res.message, seat: res.seat };
+      }
+      return { success: false, message: res.message || 'Seat transfer failed.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Seat transfer failed.' };
+    }
+  };
+
+  // Seat Release
+  const releaseSeat = async (payload: { userId?: string; seatNumber?: string }): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await seatApi.releaseSeat(payload);
+      if (res.success) {
+        await Promise.all([refreshSeats(), refreshFloors()]);
+        const updatedUsers = await userApi.getUsers();
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
+        return { success: true, message: res.message };
+      }
+      return { success: false, message: res.message || 'Seat release failed.' };
+    } catch (err: any) {
+      return { success: false, message: err?.data?.error || err?.message || 'Seat release failed.' };
+    }
   };
 
   // Remove Seat (Business Rule #5)
@@ -544,7 +884,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, message: `Seat ${seatNumber} not found.` };
     }
 
-    // Business rule: If seat is assigned to an active student, reject
     if (targetSeat.status === 'occupied') {
       return {
         success: false,
@@ -553,6 +892,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     setSeats((prev) => prev.filter((s) => s.number.toUpperCase() !== seatNumber.toUpperCase()));
+
+    // Sync to backend via seatApi
+    seatApi.deleteSeat(seatNumber).catch((err) => console.info('[seatApi.deleteSeat]', err.message));
+
     return { success: true, message: `Seat ${seatNumber} has been removed from library layout.` };
   };
 
@@ -566,6 +909,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setPlans((prev) => [...prev, newPlan]);
+
+    // Sync to backend via planApi
+    planApi.addPlan(planData).catch((err) => console.info('[planApi.addPlan]', err.message));
+
     return { success: true, message: `Plan "${planData.name}" created successfully.` };
   };
 
@@ -574,6 +921,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPlans((prev) =>
       prev.map((p) => (p.id === planId ? { ...p, ...planData } : p))
     );
+
+    // Sync to backend via planApi
+    planApi.updatePlan(planId, planData).catch((err) => console.info('[planApi.updatePlan]', err.message));
+
     return { success: true, message: 'Plan details updated successfully.' };
   };
 
@@ -589,6 +940,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return p;
       })
     );
+
+    // Sync to backend via planApi
+    planApi.updatePlan(planId, { status: nextStatus }).catch((err) => console.info('[planApi.updatePlan]', err.message));
+
     return { success: true, message: `Plan status set to ${nextStatus}.` };
   };
 
@@ -600,25 +955,46 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     availableSeats: seats.filter((s) => s.status === 'available').length,
     occupiedSeats: seats.filter((s) => s.status === 'occupied').length,
     maintenanceSeats: seats.filter((s) => s.status === 'maintenance').length,
-    activePlans: plans.filter((p) => p.status === 'Active').length
+    activePlans: plans.filter((p) => p.status === 'Active').length,
+    totalFeesDue: users.reduce((sum, u) => sum + (Number(u.balanceDue) || 0), 0),
+    pendingDuesCount: users.filter((u) => (Number(u.balanceDue) || 0) > 0).length,
+    amountCollected: users.reduce((sum, u) => sum + (Number(u.paidAmount) || 0), 0),
   };
 
   return (
     <LibraryContext.Provider
       value={{
         seats,
+        floors,
         users,
         plans,
         activities,
         student,
         isAuthenticated,
         userRole,
+        currentUser,
         selectedSeatForBooking,
         setSelectedSeatForBooking,
         login,
         logout,
         registerApplication,
         updateSeatStatus,
+        admissionRequests,
+        admissionStats,
+        pendingAdmissionsCount,
+        refreshAdmissionRequests,
+        acceptAdmissionRequest,
+        rejectAdmissionRequest,
+        refreshFloors,
+        refreshSeats,
+        refreshUsers,
+        addFloor,
+        editFloor,
+        deleteFloor,
+        toggleFloorStatus,
+        bulkAddSeats,
+        transferSeat,
+        releaseSeat,
         addUser,
         editUser,
         discontinueUser,
@@ -628,6 +1004,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addPlan,
         editPlan,
         togglePlanStatus,
+        recordPayment,
+        manageDiscount,
         stats
       }}
     >

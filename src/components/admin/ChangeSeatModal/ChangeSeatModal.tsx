@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, ArrowRightLeft, Armchair, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, ArrowRightLeft, Building2, AlertCircle } from 'lucide-react';
 import { AdminUser } from '../../../types';
 import { useLibrary } from '../../../context/LibraryContext';
 import { Button } from '../../common/Button';
@@ -11,17 +11,38 @@ interface ChangeSeatModalProps {
 }
 
 export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, onClose }) => {
-  const { seats, changeUserSeat } = useLibrary();
+  const { seats, floors, transferSeat } = useLibrary();
+  const [selectedFloorFilter, setSelectedFloorFilter] = useState<string>('all');
   const [selectedSeat, setSelectedSeat] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Filter only seats that are currently available and not on an inactive floor
+  const eligibleSeats = useMemo(() => {
+    return seats.filter((s) => {
+      if (s.status !== 'available') return false;
+
+      // Inactive floor check
+      if (s.floorId) {
+        const fl = floors.find((f) => f.id === s.floorId);
+        if (fl && fl.status === 'Inactive') return false;
+      }
+
+      if (selectedFloorFilter !== 'all') {
+        if (selectedFloorFilter === 'unassigned') {
+          if (s.floorId) return false;
+        } else if (s.floorId !== selectedFloorFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [seats, floors, selectedFloorFilter]);
+
   if (!isOpen || !user) return null;
 
-  // Filter only seats that are currently available
-  const availableSeats = seats.filter((s) => s.status === 'available');
-
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setErrorMsg(null);
     if (!selectedSeat) {
       setErrorMsg('Please select a new available seat from the list.');
@@ -29,15 +50,18 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
     }
 
     setIsLoading(true);
-    const res = changeUserSeat(user.id, selectedSeat);
-    setIsLoading(false);
-
-    if (!res.success) {
-      setErrorMsg(res.message);
-      return;
+    try {
+      const res = await transferSeat(user.id, selectedSeat);
+      if (!res.success) {
+        setErrorMsg(res.message);
+        return;
+      }
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to change seat.');
+    } finally {
+      setIsLoading(false);
     }
-
-    onClose();
   };
 
   return (
@@ -53,14 +77,14 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
                 Change Student Seat
               </h3>
               <p className="text-xs text-slate-500">
-                Reassign desk for <strong className="text-slate-800">{user.name}</strong>
+                Transfer desk assignment for <strong className="text-slate-800">{user.name}</strong>
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -87,18 +111,39 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
             </span>
           </div>
 
+          {/* Optional Floor Filter */}
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+              <Building2 className="w-3.5 h-3.5 text-slate-500" />
+              <span>Filter by Floor (Optional)</span>
+            </label>
+            <select
+              value={selectedFloorFilter}
+              onChange={(e) => setSelectedFloorFilter(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-medium"
+            >
+              <option value="all">All Floors ({seats.filter(s => s.status === 'available').length} Available)</option>
+              {floors.map((fl) => (
+                <option key={fl.id} value={fl.id} disabled={fl.status === 'Inactive'}>
+                  {fl.name} {fl.status === 'Inactive' ? '(Deactivated)' : `(${fl.stats?.availableSeats || 0} Open)`}
+                </option>
+              ))}
+              <option value="unassigned">No Floor / Direct Desks</option>
+            </select>
+          </div>
+
           {/* New Seat Selection */}
           <div>
             <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
               <span>Select New Available Seat *</span>
               <span className="text-emerald-700 font-normal">
-                {availableSeats.length} vacant desks
+                {eligibleSeats.length} vacant desks
               </span>
             </label>
 
-            {availableSeats.length === 0 ? (
+            {eligibleSeats.length === 0 ? (
               <p className="text-xs text-rose-600 p-3 bg-rose-50 rounded-lg border border-rose-200">
-                No vacant seats are currently available in the library.
+                No vacant seats are currently eligible on the selected floor.
               </p>
             ) : (
               <select
@@ -107,9 +152,9 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-mono font-bold text-sm"
               >
                 <option value="">-- Choose New Available Desk --</option>
-                {availableSeats.map((s) => (
+                {eligibleSeats.map((s) => (
                   <option key={s.id} value={s.number}>
-                    Seat {s.number} (Floor {s.floor} · Section {s.section})
+                    Seat {s.number} ({s.floorName || (s.floor ? `Floor ${s.floor}` : 'No Floor')})
                   </option>
                 ))}
               </select>
@@ -118,10 +163,12 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
 
           {/* Explanatory Synchronization Notice */}
           <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-[11px] leading-relaxed">
-            <p className="font-semibold mb-0.5">Automated Seat Synchronization:</p>
+            <p className="font-semibold mb-0.5">Automated Seat Transfer & Audit Log:</p>
             • Old desk <strong className="font-mono">{user.seat}</strong> will automatically become <strong>Available</strong>.
             <br />
-            • New desk <strong className="font-mono">{selectedSeat || 'selected'}</strong> will become <strong>Occupied</strong> by {user.name}.
+            • New desk <strong className="font-mono">{selectedSeat || 'selected'}</strong> will be assigned to <strong>{user.name}</strong>.
+            <br />
+            • A historical allocation record is permanently recorded.
           </div>
         </div>
 
@@ -138,10 +185,10 @@ export const ChangeSeatModal: React.FC<ChangeSeatModalProps> = ({ isOpen, user, 
             variant="primary"
             size="sm"
             isLoading={isLoading}
-            disabled={!selectedSeat}
             onClick={handleConfirm}
+            disabled={!selectedSeat || eligibleSeats.length === 0}
           >
-            Confirm Reassignment
+            Confirm Seat Transfer
           </Button>
         </div>
       </div>

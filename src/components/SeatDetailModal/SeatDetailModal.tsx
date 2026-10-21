@@ -50,7 +50,7 @@ export const SeatDetailModal: React.FC<SeatDetailModalProps> = ({ seat, onClose 
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Floor {seat.floor} · Section {seat.section} · {seat.isCornerOrWindow ? 'Window/Corner Cubicle' : 'Inner Silent Zone'}
+              {seat.floorName || (seat.floor ? `Floor ${seat.floor}` : 'No Floor')} · {seat.isCornerOrWindow ? 'Window/Corner Cubicle' : 'Silent Reading Zone'}
             </p>
           </div>
           <button

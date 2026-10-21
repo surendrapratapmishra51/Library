@@ -1,8 +1,18 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLibrary } from '../../context/LibraryContext';
 import { Button } from '../common/Button';
-import { LogIn, Key, Mail, ShieldAlert, Sparkles, UserCheck } from 'lucide-react';
+import { 
+  LogIn, 
+  Key, 
+  Mail, 
+  ShieldAlert, 
+  CheckCircle2, 
+  Shield, 
+  UserCheck,
+  Info
+} from 'lucide-react';
+import { authApi } from '../../services';
 
 interface LoginFormProps {
   defaultRole?: 'student' | 'admin';
@@ -10,159 +20,167 @@ interface LoginFormProps {
 
 export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login } = useLibrary();
 
-  const [role, setRole] = useState<'student' | 'admin'>(defaultRole);
-  const [identifier, setIdentifier] = useState(
-    defaultRole === 'student' ? 'vikram.sharma@example.com' : 'admin@focuszonelibrary.com'
-  );
-  const [password, setPassword] = useState('password123');
+  const initialRole = searchParams.get('role') === 'admin' ? 'admin' : defaultRole;
+  const [role, setRole] = useState<'student' | 'admin'>(initialRole);
+
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Sync role if query parameter changes
+  useEffect(() => {
+    if (searchParams.get('role') === 'admin') {
+      setRole('admin');
+    } else if (searchParams.get('role') === 'student') {
+      setRole('student');
+    }
+  }, [searchParams]);
+
+  // Reset errors when switching role
+  useEffect(() => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+  }, [role]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     if (!identifier.trim()) {
-      setErrorMsg('Please enter your mobile number or email.');
+      setErrorMsg('Please enter your registered mobile number or email.');
       return;
     }
     if (!password.trim()) {
-      setErrorMsg('Please enter your password.');
+      setErrorMsg('Please enter your account password.');
       return;
     }
 
     setIsLoading(true);
-    // Simulate auth latency
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    login(role);
-    setIsLoading(false);
+    try {
+      const data = await authApi.login({
+        identifier: identifier.trim(),
+        password: password.trim(),
+      });
 
-    if (role === 'admin') {
-      navigate('/admin');
-    } else {
-      navigate('/dashboard');
-    }
-  };
+      const userRole = data.user.role || role;
+      login(userRole, data.user, data.token);
 
-  const handleQuickDemo = (selectedRole: 'student' | 'admin') => {
-    setRole(selectedRole);
-    if (selectedRole === 'student') {
-      setIdentifier('vikram.sharma@example.com');
-      setPassword('studentPass2026');
-    } else {
-      setIdentifier('admin@focuszonelibrary.com');
-      setPassword('adminPass2026');
+      setSuccessMsg('Authentication successful! Redirecting...');
+
+      setTimeout(() => {
+        if (userRole === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg(
+        err?.data?.error || 
+        err?.message || 
+        'Incorrect credentials. Please verify your mobile/email and password.'
+      );
+    } finally {
+      setIsLoading(false);
     }
-    login(selectedRole);
-    navigate(selectedRole === 'admin' ? '/admin' : '/dashboard');
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-10 shadow-sm space-y-6">
+    <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
       
-      {/* Role Toggle Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs font-semibold">
+      {/* Portal Role Selector */}
+      <div className="flex items-center justify-between p-1.5 bg-slate-100 rounded-xl">
         <button
           type="button"
-          onClick={() => {
-            setRole('student');
-            setIdentifier('vikram.sharma@example.com');
-          }}
-          className={`flex-1 py-2 text-center rounded-md transition-colors cursor-pointer ${
+          onClick={() => setRole('student')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
             role === 'student'
-              ? 'bg-white text-emerald-900 shadow-xs'
+              ? 'bg-sky-600 text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          Student Portal
+          <UserCheck className="w-3.5 h-3.5" />
+          <span>Student Member</span>
         </button>
         <button
           type="button"
-          onClick={() => {
-            setRole('admin');
-            setIdentifier('admin@focuszonelibrary.com');
-          }}
-          className={`flex-1 py-2 text-center rounded-md transition-colors cursor-pointer ${
+          onClick={() => setRole('admin')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
             role === 'admin'
-              ? 'bg-white text-slate-900 shadow-xs'
+              ? 'bg-slate-900 text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          Staff & Admin
+          <Shield className="w-3.5 h-3.5" />
+          <span>Staff & Admin</span>
         </button>
       </div>
 
-      <div>
+      {/* Header Info */}
+      <div className="space-y-1">
         <h3 className="text-xl font-bold text-slate-900 font-display">
-          {role === 'student' ? 'Student Member Sign In' : 'Admin & Staff Portal'}
+          {role === 'admin' ? 'Library Staff & Admin Console' : 'Student Member Portal'}
         </h3>
-        <p className="text-xs text-slate-500 mt-1">
-          {role === 'student'
-            ? 'Access your desk details, live RFID attendance, and renewal status'
-            : 'Access seat matrix, live student entry logs, and fee ledger'}
+        <p className="text-xs text-slate-500">
+          {role === 'admin'
+            ? 'Sign in to access seat allocations, floor management, and the fees ledger.'
+            : 'Sign in to view your assigned desk carrel, subscription status, and payment receipts.'}
         </p>
       </div>
 
+      {/* Alerts */}
       {errorMsg && (
-        <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-center gap-2">
-          <ShieldAlert className="w-4 h-4 shrink-0" />
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2 animate-in fade-in">
+          <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
           <span>{errorMsg}</span>
         </div>
       )}
 
-      {/* Quick Demo Access Bar */}
-      <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 font-medium">
-          <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-          Quick Preview Mode:
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleQuickDemo('student')}
-            className="px-2.5 py-1 rounded bg-white hover:bg-emerald-100 text-emerald-800 font-semibold border border-emerald-300 text-[11px] transition-colors cursor-pointer"
-          >
-            Demo Student
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickDemo('admin')}
-            className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] transition-colors cursor-pointer"
-          >
-            Demo Admin
-          </button>
+      {successMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+          <span>{successMsg}</span>
         </div>
-      </div>
+      )}
 
+      {/* Login Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
+        
+        {/* Identifier Field */}
         <div>
-          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-            Registered Mobile or Email
+          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+            {role === 'admin' ? 'Staff Email or Mobile Number' : 'Registered Mobile Number or Email'} <span className="text-rose-500">*</span>
           </label>
           <div className="relative">
             <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
               required
-              placeholder="e.g. 9876543210 or name@example.com"
+              autoFocus
+              placeholder={role === 'admin' ? 'e.g. admin@focuszonelibrary.com' : 'e.g. 7408085716 or student@gmail.com'}
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
+              className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-600"
             />
           </div>
         </div>
 
+        {/* Password Field */}
         <div>
-          <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center justify-between mb-1">
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-              Password
+              Password <span className="text-rose-500">*</span>
             </label>
             <button
               type="button"
-              onClick={() => alert('Password reset link sent to registered mobile/email in demo mode.')}
-              className="text-xs text-emerald-700 hover:underline cursor-pointer"
+              onClick={() => alert(`For password help or reset, please contact the library reception or administrator.`)}
+              className="text-xs text-sky-700 hover:underline cursor-pointer"
             >
               Forgot Password?
             </button>
@@ -175,11 +193,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
+              className="w-full pl-9 pr-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-600"
             />
           </div>
         </div>
 
+        {/* Submit Button */}
         <div className="pt-2">
           <Button
             type="submit"
@@ -187,19 +206,39 @@ export const LoginForm: React.FC<LoginFormProps> = ({ defaultRole = 'student' })
             size="lg"
             fullWidth
             isLoading={isLoading}
+            className={`font-semibold h-11 text-sm ${
+              role === 'admin' 
+                ? 'bg-slate-900 hover:bg-slate-800' 
+                : 'bg-sky-600 hover:bg-sky-700'
+            }`}
           >
             <LogIn className="w-4 h-4 mr-2" />
-            Sign In to {role === 'student' ? 'Student Portal' : 'Admin Console'}
+            <span>Sign In to {role === 'admin' ? 'Admin Console' : 'Student Portal'}</span>
           </Button>
         </div>
       </form>
 
-      {/* Footer link to Register */}
-      <div className="pt-4 border-t border-slate-100 text-center text-xs text-slate-600">
-        <span>Not registered with FocusZone yet? </span>
-        <Link to="/join" className="text-emerald-700 font-semibold hover:underline">
-          Create Account / Apply for Desk
-        </Link>
+      {/* Account Policy Information */}
+      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1.5">
+        <div className="flex items-start gap-2">
+          <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+          <p className="text-[11px] leading-relaxed">
+            {role === 'student' ? (
+              <>
+                <strong>New Student Enrollment:</strong> Student accounts are created and configured by library administration during seat allocation and fee confirmation. There is no open public signup.
+              </>
+            ) : (
+              <>
+                <strong>Staff Access:</strong> Staff & admin accounts are provisioned exclusively through the backend master administrator and the internal admin panel.
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Quick Credentials hint */}
+      <div className="pt-2 border-t border-slate-100 text-center text-[11px] text-slate-400">
+        <span>Default access: Admin (<code>admin@focuszonelibrary.com</code> / <code>admin123</code>) · Student (<code>7408085716</code> / <code>student123</code>)</span>
       </div>
     </div>
   );

@@ -56,7 +56,7 @@ export const SeatCard: React.FC<SeatCardProps> = ({ seat, isSelected = false, on
 
       {/* Bottom Row: Micro feature icons */}
       <div className="flex items-center justify-between w-full pt-1 border-t border-black/5 text-[10px] text-slate-500">
-        <span className="text-slate-400 font-mono">F{seat.floor}·{seat.section}</span>
+        <span className="text-slate-400 font-mono truncate max-w-[80px]">{seat.floorName || (seat.floor ? `Floor ${seat.floor}` : 'No Floor')}</span>
         <div className="flex items-center gap-1">
           {seat.hasPowerOutlet && (
             <span title="Power Socket">

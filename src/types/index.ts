@@ -3,14 +3,54 @@ export type SeatStatus = 'available' | 'occupied' | 'maintenance';
 export interface Seat {
   id: string;
   number: string; // e.g. "A01", "B12"
-  floor: 1 | 2;
-  section: 'A' | 'B' | 'C' | 'D';
+  floor?: number | null;
+  floorId?: string | null;
+  floorName?: string | null;
+  section?: string | null; // deprecated legacy field, kept only for backwards compatibility
+  description?: string;
   status: SeatStatus;
   hasPowerOutlet: boolean;
   hasDeskLamp: boolean;
   isCornerOrWindow?: boolean;
-  occupiedBy?: string;
-  assignedUntil?: string;
+  occupiedBy?: string | null;
+  assignedUntil?: string | null;
+}
+
+export interface FloorStats {
+  totalSeats: number;
+  availableSeats: number;
+  occupiedSeats: number;
+  unavailableSeats: number;
+}
+
+export interface Floor {
+  id: string;
+  name: string;
+  floorNumber?: number | null;
+  description?: string;
+  status: 'Active' | 'Inactive';
+  sortOrder: number;
+  stats: FloorStats;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SeatAllocation {
+  id: string;
+  userId: string;
+  userName: string;
+  userIdentifier?: string | null;
+  seatId?: string | null;
+  seatNumber: string;
+  floorId?: string | null;
+  floorName?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  releaseDate?: string | null;
+  status: 'Active' | 'Transferred' | 'Released' | 'Expired';
+  actionType: 'Enrolled' | 'Transferred' | 'Released' | 'Renewed';
+  notes?: string | null;
+  createdAt?: string;
 }
 
 export interface Facility {
@@ -50,8 +90,17 @@ export interface AdminUser {
   joiningDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
   status: 'Active' | 'Discontinued';
+  role?: 'admin' | 'student';
+  password?: string;
   previousSeat?: string;
   discontinuedDate?: string;
+  baseFee?: number;
+  discount?: number;
+  discountReason?: string;
+  finalFee?: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  paymentStatus?: 'Paid' | 'Partial' | 'Pending';
   history?: string[];
 }
 
@@ -84,22 +133,29 @@ export interface StudentProfile {
   name: string;
   email: string;
   mobile: string;
-  dob: string;
-  address: string;
+  dob?: string;
+  address?: string;
   planId: string;
   planName: string;
   assignedSeat: string;
   membershipStatus: 'Active' | 'Expiring Soon' | 'Expired';
   startDate: string;
   expiryDate: string;
-  lastPayment: {
+  baseFee?: number;
+  discount?: number;
+  discountReason?: string;
+  finalFee?: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  paymentStatus?: 'Paid' | 'Partial' | 'Pending';
+  lastPayment?: {
     amount: number;
     date: string;
     method: string;
     invoiceNo: string;
-  };
-  nextRenewalDate: string;
-  todayStatus: 'Checked In' | 'Checked Out' | 'Not Visited';
+  } | null;
+  nextRenewalDate?: string;
+  todayStatus?: 'Checked In' | 'Checked Out' | 'Not Visited';
   checkInTime?: string;
 }
 
@@ -129,6 +185,7 @@ export interface RegistrationFormData {
   fullName: string;
   mobile: string;
   email: string;
+  password?: string;
   dob: string;
   address: string;
   planId: string;
@@ -136,4 +193,36 @@ export interface RegistrationFormData {
   startDate: string;
   shiftTiming: '24/7 All Day' | 'Morning (6 AM - 2 PM)' | 'Evening (2 PM - 10 PM)' | 'Night (10 PM - 6 AM)';
   notes?: string;
+}
+
+export interface AdmissionRequest {
+  id: string;
+  name: string;
+  mobile: string;
+  email: string;
+  dob?: string;
+  address?: string;
+  planId: string;
+  planName: string;
+  preferredSeat: string;
+  startDate: string;
+  shiftTiming?: string;
+  notes?: string;
+  status: 'Pending' | 'Accepted' | 'Rejected';
+  rejectionReason?: string | null;
+  allocatedSeat?: string | null;
+  allocatedPlanId?: string | null;
+  allocatedPlanName?: string | null;
+  processedBy?: string | null;
+  processedAt?: string | null;
+  createdUserId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdmissionStats {
+  pendingCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  totalCount: number;
 }

@@ -27,6 +27,7 @@ export const UserTable: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Discontinued'>('all');
   const [planFilter, setPlanFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'admin'>('all');
 
   // Modal controls
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -38,12 +39,18 @@ export const UserTable: React.FC = () => {
   // Filtered users
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
+      // Role filter
+      if (roleFilter !== 'all') {
+        const uRole = user.role || 'student';
+        if (uRole !== roleFilter) return false;
+      }
+
       // Search query (name or mobile or seat)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const matchesName = user.name.toLowerCase().includes(q);
-        const matchesMobile = user.mobile.includes(q);
-        const matchesSeat = user.seat.toLowerCase().includes(q);
+        const matchesName = (user.name || '').toLowerCase().includes(q);
+        const matchesMobile = user.mobile ? String(user.mobile).includes(q) : false;
+        const matchesSeat = (user.seat || '').toLowerCase().includes(q);
         if (!matchesName && !matchesMobile && !matchesSeat) {
           return false;
         }
@@ -61,11 +68,11 @@ export const UserTable: React.FC = () => {
 
       return true;
     });
-  }, [users, searchQuery, statusFilter, planFilter]);
+  }, [users, roleFilter, searchQuery, statusFilter, planFilter]);
 
-  const handleConfirmDiscontinue = () => {
+  const handleConfirmDiscontinue = async () => {
     if (discontinueTarget) {
-      discontinueUser(discontinueTarget.id);
+      await discontinueUser(discontinueTarget.id);
       setDiscontinueTarget(null);
     }
   };
@@ -92,7 +99,7 @@ export const UserTable: React.FC = () => {
             className="self-start sm:self-auto"
           >
             <UserPlus className="w-4 h-4 mr-2" />
-            Add User
+            Add Member / Staff
           </Button>
         </div>
 
@@ -119,6 +126,17 @@ export const UserTable: React.FC = () => {
                 </button>
               )}
             </div>
+
+            {/* Role Filter */}
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value as any)}
+              className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+            >
+              <option value="all">All Roles ({users.length})</option>
+              <option value="student">Students ({users.filter(u => u.role !== 'admin').length})</option>
+              <option value="admin">Staff & Admins ({users.filter(u => u.role === 'admin').length})</option>
+            </select>
 
             {/* Status Filter */}
             <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs font-medium">
@@ -173,7 +191,7 @@ export const UserTable: React.FC = () => {
           </div>
 
           <div className="text-xs text-slate-500 font-medium self-end md:self-auto">
-            Showing <strong className="text-slate-800 font-mono">{filteredUsers.length}</strong> of {users.length} members
+            Showing <strong className="text-slate-800 font-mono">{filteredUsers.length}</strong> of {users.length} accounts
           </div>
         </div>
       </div>
@@ -190,6 +208,7 @@ export const UserTable: React.FC = () => {
                 <th className="p-4 font-semibold">Seat</th>
                 <th className="p-4 font-semibold">Joining Date</th>
                 <th className="p-4 font-semibold">Expiry Date</th>
+                <th className="p-4 font-semibold">Fee / Due</th>
                 <th className="p-4 font-semibold">Status</th>
                 <th className="p-4 font-semibold text-right">Actions</th>
               </tr>
@@ -197,7 +216,7 @@ export const UserTable: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-400">
+                  <td colSpan={9} className="p-12 text-center text-slate-400">
                     <p className="text-sm font-semibold text-slate-600">No members match your criteria</p>
                     <p className="text-xs mt-1">Try resetting the search bar or filters.</p>
                   </td>
@@ -206,15 +225,30 @@ export const UserTable: React.FC = () => {
                 filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="p-4 font-bold text-slate-900">
-                      <div>
-                        {user.name}
-                        <span className="block text-[11px] font-normal text-slate-400 font-mono">{user.email}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span>{user.name}</span>
+                        {user.role === 'admin' && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-900 text-white tracking-wide">
+                            Staff
+                          </span>
+                        )}
                       </div>
+                      <span className="block text-[11px] font-normal text-slate-400 font-mono">{user.email || 'No email registered'}</span>
                     </td>
                     <td className="p-4 font-mono">{user.mobile}</td>
-                    <td className="p-4 font-medium text-slate-800">{user.plan}</td>
+                    <td className="p-4 font-medium text-slate-800">
+                      {user.role === 'admin' ? (
+                        <span className="text-slate-600 font-semibold">Staff Administrator</span>
+                      ) : (
+                        user.plan
+                      )}
+                    </td>
                     <td className="p-4">
-                      {user.status === 'Active' && user.seat !== 'None' ? (
+                      {user.role === 'admin' ? (
+                        <span className="font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                          Staff Access
+                        </span>
+                      ) : user.status === 'Active' && user.seat && user.seat !== 'None' ? (
                         <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                           Seat {user.seat}
                         </span>
@@ -225,7 +259,27 @@ export const UserTable: React.FC = () => {
                       )}
                     </td>
                     <td className="p-4 font-mono">{user.joiningDate}</td>
-                    <td className="p-4 font-mono">{user.expiryDate}</td>
+                    <td className="p-4 font-mono">{user.role === 'admin' ? 'Permanent' : user.expiryDate}</td>
+                    <td className="p-4">
+                      {user.role === 'admin' ? (
+                        <span className="text-slate-400 font-medium">N/A (Staff)</span>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-semibold text-slate-900 font-mono">
+                            ₹{user.finalFee ?? user.baseFee ?? 0}
+                          </span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full inline-block w-fit ${
+                            user.paymentStatus === 'Paid'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : user.paymentStatus === 'Partial'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {user.paymentStatus === 'Paid' ? 'Paid' : user.paymentStatus === 'Partial' ? `Due ₹${user.balanceDue}` : 'Pending'}
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="p-4">
                       <span
                         className={`px-2.5 py-0.5 rounded-full font-semibold text-[11px] ${
