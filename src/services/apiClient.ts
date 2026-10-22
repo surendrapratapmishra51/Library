@@ -19,7 +19,7 @@ export interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
 }
 
-const API_BASE_URL = '';
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string) || '';
 
 /**
  * Retrieves the stored JWT authentication token from localStorage.
